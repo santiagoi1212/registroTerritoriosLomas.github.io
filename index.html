@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mapa · Realizar + Registros + Sync (con fecha y sin input de territorio)</title>
+
+  <!-- Leaflet CSS + JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+
+  <style>
+    html, body, #map { height: 100%; margin: 0; }
+    .label { font-weight: bold; font-size: 12px; color: black; text-shadow: 1px 1px 2px white; }
+    #status {
+      position: absolute; bottom: 10px; left: 10px;
+      background: rgba(255,255,255,0.9); padding: 5px 10px; border-radius: 4px; font-size: 14px;
+    }
+    #btn-registros {
+      position: absolute; top: 12px; right: 12px; z-index: 1000;
+      background: #0b5; color: #071; border: none; border-radius: 10px;
+      padding: 10px 12px; font-weight: 800; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.25);
+    }
+    #overlay { position: absolute; inset: 0; background: rgba(0,0,0,.4);
+      display: none; align-items: center; justify-content: center; z-index: 1100; }
+    #panel {
+      background: #fff; color: #222; width: min(1000px, 96vw); max-height: 88vh;
+      border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.35); display: flex; flex-direction: column;
+    }
+    #panel header { padding: 12px 16px; border-bottom: 1px solid #e6e6e6; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    #panel header h3 { margin: 0; font-size: 16px; }
+    #panel .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    #panel .actions button { border: 1px solid #ddd; background: #f5f5f5; border-radius: 8px; padding: 8px 10px; cursor: pointer; font-weight: 600; }
+    #panel .actions button.primary { background: #0b74ff; color: white; border-color: #0b74ff; }
+    #panel .actions button.warn    { background: #fff3cd; border-color: #ffecb5; color: #8a6d3b; }
+    #panel .actions button.danger  { background: #e53935; color: white; border-color: #e53935; }
+    #panel .content { padding: 12px 16px; overflow: auto; }
+
+    .filters {
+      display: grid; grid-template-columns: 1fr 1fr 1fr 1fr auto auto;
+      gap: 8px; margin-bottom: 10px; align-items: end;
+    }
+    .filters label { display:block; font-size: 12px; color: #555; margin-bottom: 4px; }
+    .filters input, .filters select { padding: 7px 8px; border: 1px solid #ccc; border-radius: 8px; font-size: 13px; }
+    .filters button { border: 1px solid #ddd; background: #f0f0f0; border-radius: 8px; padding: 8px 10px; cursor: pointer; font-weight: 600; }
+
+    #tbl { border-collapse: collapse; width: 100%; font-size: 13px; }
+    #tbl th, #tbl td { border-bottom: 1px solid #eee; padding: 6px 8px; text-align: left; }
+    #tbl th { position: sticky; top: 0; background: #fafafa; z-index: 1; }
+    .muted { color:#666; font-size:12px; }
+
+    .form-realizar { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; font-size: 13px; min-width: 240px; }
+    .form-realizar .row { margin-bottom: 8px; }
+    .form-realizar label { display:block; margin-bottom:4px; color:#333; font-weight:600; }
+    .form-realizar input, .form-realizar select { width:100%; padding:6px 8px; border:1px solid #ccc; border-radius:6px; font-size:13px; }
+    .form-realizar .actions { display:flex; gap:8px; justify-content:flex-end; }
+    .form-realizar button { padding:7px 10px; border:none; border-radius:6px; cursor:pointer; font-weight:700; }
+    .btn-guardar { background:#2e7d32; color:#fff; }
+    .btn-cancelar { background:#ddd; color:#333; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="status"></div>
+  <button id="btn-registros" title="Ver y exportar registros locales">Registros</button>
+
+  <div id="overlay" role="dialog" aria-modal="true">
+    <div id="panel">
+      <header>
+        <h3>Registros locales de “Realizar territorio”</h3>
+        <div class="actions">
+          <button id="btn-sync" class="primary" title="Enviar pendientes al Spreadsheet">Sincronizar (0)</button>
+          <button id="btn-exp-json">Exportar JSON (filtrado)</button>
+          <button id="btn-exp-csv" class="warn">Exportar CSV (filtrado)</button>
+          <button id="btn-borrar-todo" class="danger">Borrar todo</button>
+          <button id="btn-cerrar">Cerrar</button>
+        </div>
+      </header>
+      <div class="content">
+        <div class="filters">
+          <div>
+            <label for="filter-days">Rango</label>
+            <select id="filter-days">
+              <option value="30" selected>Últimos 30 días</option>
+              <option value="7">Últimos 7 días</option>
+              <option value="90">Últimos 90 días</option>
+              <option value="365">Últimos 365 días</option>
+              <option value="all">Todos</option>
+            </select>
+          </div>
+          <div>
+            <label for="filter-id">Buscar por ID</label>
+            <input id="filter-id" placeholder="Ej: 12" />
+          </div>
+          <div>
+            <label for="filter-cap">Capitán</label>
+            <input id="filter-cap" placeholder="Ej: Ana" />
+          </div>
+          <div>
+            <label for="filter-estado">Estado</label>
+            <select id="filter-estado">
+              <option value="all" selected>Todos</option>
+              <option value="Si">Si</option>
+              <option value="No">No</option>
+            </select>
+          </div>
+          <div><button id="btn-aplicar">Aplicar</button></div>
+          <div><button id="btn-limpiar">Limpiar filtros</button></div>
+        </div>
+
+        <div id="resumen" class="muted" style="margin-bottom:8px"></div>
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>ID</th>
+              <th>Capitán</th>
+              <th>Territorio</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+<script>
+const ZONAS_SIN_RELLENO = [
+  {
+    id: 'A1',
+    label: 'Zona sin relleno – Ejemplo',
+    coords: [
+      [-34.77720, -55.85620],
+      [-34.77720, -55.85490],
+      [-34.77800, -55.85490],
+      [-34.77800, -55.85620],
+      [-34.77720, -55.85620] // cerramos la figura
+    ],
+    color: '#222',     // borde
+    weight: 2,         // grosor
+    dashArray: '6,4'   // punteado (opcional). Quita esta línea si lo quieres sólido
+  }
+];  
+// ================= CONFIG =================
+const MAP_CENTER = [-34.777651, -55.855565];
+const MAP_ZOOM   = 17;
+const JSON_URL   = "poligonos_lomas.json"; // tu archivo base de polígonos
+let BASE_POLYGONS = [];                 // cache del JSON de polígonos
+const REFRESH_MS = 5 * 60 * 1000;       // 5 minutos
+let refreshTimer = null;
+
+function startAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => {
+    refreshFromSheet().catch(err => console.warn('Auto-refresh error:', err));
+  }, REFRESH_MS);
+}
+// === LECTURA del Sheet ===
+// A) CSV publicado (pegá acá el link "output=csv"; si lo dejás vacío, se salta)
+const SHEET_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRnjPtaFTh49d_U3mD8kNr6_YoXZoUL5d5Ah11E2FcAMjrHtSyJkH6Q6p0seJyp3JOa6iK2F8ODpxrf/pub?gid=0&single=true&output=csv"
+// B) Fallback GVIZ (requiere “Cualquiera con el vínculo – Lector”)
+const SHEET_ID  = "1PGMF6givdrByw3pm0KsVabDEz-fOVlSxDhyQa4mMIAQ";
+const SHEET_GID = "0";
+const GVIZ_URL  = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${SHEET_GID}`;
+
+// === ESCRITURA al Sheet ===
+// Debe ser la URL del Web App de Apps Script (termina en /exec). NO uses el 2PACX del CSV.
+const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbweVDu_2Vn0ygEMQdkgqbVprTKJ2kjAT--Wimo0cVTaASLK3-yJMkt175DJq-pky1Y/exec";
+
+// LocalStorage keys
+const LS_REAL  = "realizaciones_lomas";      // registros locales (último estado por id)
+const LS_QUEUE = "realizaciones_queue_pend"; // cola de pendientes para enviar
+
+// Leaflet
+const map  = L.map("map").setView(MAP_CENTER, MAP_ZOOM);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+const capa = L.featureGroup().addTo(map);
+
+// Aviso si el webhook no parece correcto
+(function sanity() {
+  if (!/^https:\/\/script\.google\.com\/macros\/.+\/exec$/.test(WEBHOOK_URL)) {
+    console.warn("WEBHOOK_URL no parece un Apps Script /exec. Editá el HTML y pegá la URL correcta.");
+  }
+})();
+
+function setStatus(msg) {
+  const el = document.getElementById("status");
+  el.textContent = msg || "";
+  if (!msg) return;
+  clearTimeout(setStatus._t);
+  setStatus._t = setTimeout(() => el.textContent = "", 4000);
+}
+
+function pintarLineas(arr) {
+  capaLineas.clearLayers();
+  (arr || []).forEach(z => {
+    if (!z || !Array.isArray(z.coords) || z.coords.length < 2) return;
+    const poly = L.polyline(z.coords, {
+      color: z.color || '#222',
+      weight: z.weight || 2,
+      dashArray: z.dashArray || null,
+      fill: false,          // importante: sin relleno
+      interactive: false    // no captura eventos; solo guía visual
+    });
+    if (z.label) {
+      poly.bindTooltip(z.label, { permanent: false, direction: 'top', className: 'label' });
+    }
+    capaLineas.addLayer(poly);
+  });
+}
+
+// =============== Helpers ===============
+function estiloPorEstado(estado) {
+  const base = { color: "black", weight: 1, fillOpacity: 0.48 };
+  if (!estado) return { ...base, fillColor: "#000" };
+  const s = String(estado).toLowerCase();
+  if (s.includes("blue"))   return { ...base, fillColor: "#3037BA" };
+  if (s.includes("green"))  return { ...base, fillColor: "#439C51" };
+  if (s.includes("yellow")) return { ...base, fillColor: "#CCD63C" };
+  if (s.includes("red"))    return { ...base, fillColor: "#B53A22" };
+  return { ...base, fillColor: "#90caf9" };
+}
+function diferenciaEnMeses(a, b) {
+  if (!(a instanceof Date) || isNaN(a)) return Infinity;
+  let meses = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+  if (b.getDate() < a.getDate()) meses -= 1;
+  return meses;
+}
+function parseCSVLine(line) {
+  const out = []; let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i+1] === '"') { cur += '"'; i++; }
+      else { inQ = !inQ; }
+    } else if (ch === ',' && !inQ) { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+function parseFechaSeguro(s) {
+  s = String(s || '').trim();
+  if (!s) return new Date('Invalid');
+  const d1 = new Date(s);
+  if (!isNaN(d1)) return d1;
+  const m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (m) return new Date(+m[3], +m[2]-1, +m[1]);
+  return new Date('Invalid');
+}
+function normalizarFinalizado(v) {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (!s) return '';
+  if (['si','sí','s','true','1','ok','finalizado','completo','terminado'].includes(s)) return 'Si';
+  if (['no','n','false','0','pendiente','incompleto','en curso','trabajando'].includes(s)) return 'No';
+  return s;
+}
+function leerRealizacionesLS() {
+  try { const raw = localStorage.getItem(LS_REAL); const arr = raw ? JSON.parse(raw) : []; return Array.isArray(arr) ? arr : []; }
+  catch { return []; }
+}
+function guardarRealizacionLS(rec) {
+  const arr = leerRealizacionesLS();
+  const i = arr.findIndex(x => String(x.id) === String(rec.id));
+  if (i >= 0) arr[i] = rec; else arr.push(rec);
+  localStorage.setItem(LS_REAL, JSON.stringify(arr));
+}
+function queueGet() { try { const raw = localStorage.getItem(LS_QUEUE); const arr = raw ? JSON.parse(raw) : []; return Array.isArray(arr) ? arr : []; } catch { return []; } }
+function queueSet(arr) { localStorage.setItem(LS_QUEUE, JSON.stringify(arr)); }
+function queueAdd(rec) { const arr = queueGet(); arr.push(rec); queueSet(arr); updateSyncBadge(); }
+function queueRemoveAt(idx) { const arr = queueGet(); arr.splice(idx,1); queueSet(arr); updateSyncBadge(); }
+function byId(arr) { const m = new Map(); (arr||[]).forEach(x => m.set(String(x.id), x)); return m; }
+
+// Territorio por defecto de un polígono
+function territorioDef(p) {
+  return (p.territorio ?? p.territorioStr ?? p.id);
+}
+
+// === Formato para <input type="date">
+function fmtDateInput(d) {
+  if (!(d instanceof Date) || isNaN(d)) d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+// =============== Lectura Sheet ===============
+async function fetchCSV(url) {
+  if (!url) throw new Error("csv-url-empty");
+  const r = await fetch(url, { headers: { 'Accept': 'text/csv' }, cache: 'no-cache' });
+  if (!r.ok) throw new Error('csv-http-'+r.status);
+  return await r.text();
+}
+async function cargarDatosDesdeSheets() {
+  // A) CSV publicado
+  if (SHEET_CSV) {
+    try {
+      const csv = await fetchCSV(SHEET_CSV);
+      return parseCSVToRows(csv);
+    } catch (e) {
+      console.warn('CSV publicado no disponible:', e.message || e);
+    }
+  }
+  // B) GVIZ
+  try {
+    const txt = await fetch(GVIZ_URL, { cache: 'no-cache' }).then(r => r.text());
+    const json = JSON.parse(txt.replace(/^[^{]+/, '').replace(/\);?\s*$/, ''));
+    return gvizToRows(json);
+  } catch (e) {
+    console.error('GVIZ tampoco disponible:', e);
+    return [];
+  }
+}
+function parseCSVToRows(csv) {
+  console.log(csv);
+  const lines = csv.split(/\r?\n/).filter(l => l.trim() !== '');
+  if (!lines.length) return [];
+  const header = parseCSVLine(lines[0]).map(h => String(h).trim().toLowerCase());
+  const idx = (names) => names.map(n => header.indexOf(n)).find(i => i >= 0);
+  const iId    = idx(['id']);
+  const iFecha = idx(['fecha','date']);
+  const iFin   = idx(['finalizado','fin','estado','status']);
+  const out = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i]);
+    const id = iId != null ? cols[iId] : cols[0];
+    if (id == null || String(id).trim() === '') continue;
+    const rawFecha = iFecha != null ? cols[iFecha] : '';
+    const rawFin   = iFin != null ? cols[iFin]   : '';
+    out.push({
+      id: parseInt(String(id).trim(),10),
+      fecha: parseFechaSeguro(rawFecha || ''),
+      finalizado: normalizarFinalizado(rawFin || '')
+    });
+  }
+  return out;
+}
+function gvizToRows(json) {
+  const cols = (json.table && json.table.cols) ? json.table.cols : [];
+  const rows = (json.table && json.table.rows) ? json.table.rows : [];
+  const labels = cols.map(c => String((c && (c.label || c.id)) || '').trim().toLowerCase());
+  const idx = (names) =>
+  names.map(n => labels.indexOf(n))
+       .find(i => i >= 0);
+
+  const iId    = idx(['id']);
+  const iFecha = idx(['fecha','date']);
+  const iFin   = idx(['finalizado','estado','fin']);
+  const out = [];
+  for (const r of rows) {
+    const c = (r && r.c) || [];
+    const get = (i) => (i != null && i >= 0 && c[i] && c[i].v != null) ? c[i].v : '';
+    const idVal = get(iId);
+    if (idVal === '') continue;
+    out.push({
+      id: parseInt(String(idVal).trim(),10),
+      fecha: parseFechaSeguro(get(iFecha)),
+      finalizado: normalizarFinalizado(get(iFin))
+    });
+  }
+  return out;
+}
+function mergeSheets(poligonos, datosSheets) {
+  const m = byId(datosSheets);
+  return (poligonos||[]).map(p => {
+    const d = m.get(String(p.id));
+    if (d) { p.fecha = d.fecha; p.finalizado = d.finalizado; }
+    return p;
+  });
+}
+function mergeRealizacionesLocales(poligonos) {
+  const regs = byId(leerRealizacionesLS());
+  return (poligonos||[]).map(p => {
+    const r = regs.get(String(p.id));
+    if (r) {
+      p.fecha = new Date(r.fecha);
+      p.finalizado = normalizarFinalizado(r.estado);
+      p.capitan = r.capitan || '';
+      p.territorioStr = r.territorio || '';
+    }
+    return p;
+  });
+}
+
+// =============== Escritura Sheet (POST → fallback GET) ===============
+async function enviarAlSheet(rec) {
+  try {
+    const body = new URLSearchParams({ payload: JSON.stringify(rec) });
+    const r = await fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8" },
+      body
+    });
+    const text = await r.text().catch(()=> "");
+    if (r.ok && /"ok"\s*:\s*true/.test(text)) return { ok: true, via: 'POST' };
+    if (r.status === 405) throw new Error("405");
+    throw new Error(text || ("HTTP " + r.status));
+  } catch (err) {
+    // Fallback GET (requiere doGet(e) en Apps Script que re-use la misma lógica)
+    try {
+      const url = WEBHOOK_URL + "?" + new URLSearchParams({ payload: JSON.stringify(rec) });
+      await fetch(url, { method: "GET", mode: "no-cors" });
+      return { ok: true, via: 'GET-no-cors' };
+    } catch (e2) {
+      console.warn("Fallo envío, guardando en cola:", e2);
+      queueAdd(rec);
+      return { ok:false, queued:true, reason:String(e2) };
+    }
+  }
+}
+
+// =============== UI de formulario por polígono ===============
+// SIN input de "Territorio"; se muestra el territorio por defecto y se agrega FECHA (date picker)
+function formHTML(id, valores = {}) {
+  const { capitan='', estado='Si', fechaValida = new Date() } = valores;
+  const fechaInput = fmtDateInput(fechaValida);
+  return `
+    <div class="form-realizar">
+      <div class="row">
+        <label for="cap-${id}">Capitán</label>
+        <input id="cap-${id}" value="${capitan || ''}" placeholder="Nombre del capitán"/>
+      </div>
+      <div class="row">
+        <label for="fec-${id}">Fecha</label>
+        <input id="fec-${id}" type="date" value="${fechaInput}" />
+      </div>
+      <div class="row">
+        <label for="est-${id}">Estado</label>
+        <select id="est-${id}">
+          <option ${estado==='Si'?'selected':''} value="Si">Finalizado (Si)</option>
+          <option ${estado==='No'?'selected':''} value="No">No finalizado (No)</option>
+        </select>
+      </div>
+      <div class="muted">Se registra la fecha seleccionada y se sincroniza con el Spreadsheet.</div>
+      <div class="actions" style="margin-top:8px">
+        <button class="btn-cancelar" id="cancel-${id}">Cancelar</button>
+        <button class="btn-guardar" id="save-${id}">Guardar</button>
+      </div>
+    </div>`;
+}
+function attachFormHandlers(poly, p) {
+  const id = p.id;
+  const btnSave = document.getElementById(`save-${id}`);
+  const btnCancel = document.getElementById(`cancel-${id}`);
+  if (btnCancel) btnCancel.onclick = () => poly.closePopup();
+  if (!btnSave) return;
+
+  btnSave.onclick = async () => {
+    const cap = (document.getElementById(`cap-${id}`)?.value || '').trim();
+    const est = (document.getElementById(`est-${id}`)?.value || 'Si');
+    const dateStr = (document.getElementById(`fec-${id}`)?.value || '').trim(); // YYYY-MM-DD
+    // fecha elegida (00:00 local)
+    let fechaISO;
+    if (dateStr) {
+      const dt = new Date(dateStr + 'T00:00:00');
+      fechaISO = dt.toISOString();
+    } else {
+      fechaISO = new Date().toISOString();
+    }
+
+    const terDef = String(territorioDef(p)); // territorio por defecto del polígono (no editable)
+    const rec = { id, capitan: cap, territorio: terDef, estado: est, fecha: fechaISO, origen: navigator.userAgent || '' };
+
+    guardarRealizacionLS(rec); // local
+
+    // actualizar estado en memoria y estilos
+    p.capitan = cap;
+    p.territorioStr = terDef;
+    p.finalizado = normalizarFinalizado(est);
+    p.fecha = new Date(fechaISO);
+
+    const fechaValida = p.fecha instanceof Date && !isNaN(p.fecha);
+    const diffMeses = fechaValida ? diferenciaEnMeses(p.fecha, new Date()) : Infinity;
+    let color = 'red';
+    if (diffMeses < 2) color = p.finalizado === 'Si' ? 'green' : 'blue';
+    else if (diffMeses <= 3) color = 'yellow';
+    poly.setStyle(estiloPorEstado(color));
+
+    const fechaHtml = fechaValida ? 'Fecha: ' + fmtDateInput(p.fecha) + '<br/>' : '';
+    const capHtml   = p.capitan ? ('Capitán: ' + p.capitan + '<br/>') : '';
+    const terHtml   = p.territorioStr ? ('Territorio: ' + p.territorioStr + '<br/>') : '';
+    poly.setPopupContent(
+      `<b>Territorio ${p.id}</b><br/>${fechaHtml}${capHtml}${terHtml}Estado: ${p.finalizado || 'Desconocido'}<hr/>`
+      + formHTML(id, { capitan: p.capitan, estado: p.finalizado || 'Si', fechaValida: p.fecha })
+    );
+    attachFormHandlers(poly, p);
+
+    const res = await enviarAlSheet(rec);
+    if (res.ok) setStatus(`Guardado y sincronizado (ID ${id}) via ${res.via}.`);
+    else setStatus(`Guardado local. Pendiente de Sync (ID ${id}).`);
+    updateSyncBadge();
+  };
+}
+
+// =============== Pintar ===============
+function pintar(poligonos) {
+  capa.clearLayers();
+  (poligonos || []).forEach(p => {
+    if (!p || !Array.isArray(p.coords) || p.coords.length < 3) return;
+    try {
+      const fechaValida = p.fecha instanceof Date && !isNaN(p.fecha);
+      const fechaHtml = fechaValida ? 'Fecha: ' + fmtDateInput(p.fecha) + '<br/>' : '';
+      let color = 'red';
+      const diffMeses = fechaValida ? diferenciaEnMeses(p.fecha, new Date()) : Infinity;
+      if (diffMeses < 2) color = p.finalizado === 'Si' ? 'green' : 'blue';
+      else if (diffMeses <= 3) color = 'yellow';
+
+      // territorio fijo (no editable)
+      const terTxt = String(territorioDef(p));
+      p.territorioStr = p.territorioStr || terTxt;
+
+      const poly = L.polygon(p.coords, estiloPorEstado(color));
+      poly.bindTooltip('ID: ' + p.id, { permanent: true, direction: 'center', className: 'label' });
+
+      const capHtml = p.capitan ? ('Capitán: ' + p.capitan + '<br/>') : '';
+      const terHtml = p.territorioStr ? ('Territorio: ' + p.territorioStr + '<br/>') : '';
+      const content = `<b>Territorio ${p.id}</b><br/>${fechaHtml}${capHtml}${terHtml}Estado: ${p.finalizado || 'Desconocido'}<hr/>`
+                    + formHTML(p.id, { capitan: p.capitan, estado: p.finalizado || 'Si', fechaValida: p.fecha });
+      poly.bindPopup(content, { minWidth: 260 });
+      poly.on("popupopen", () => attachFormHandlers(poly, p));
+      poly.on("mouseover", () => poly.bringToFront());
+      capa.addLayer(poly);
+    } catch (e) { console.warn('Polígono inválido', p, e); }
+  });
+  if (capa.getLayers().length) map.fitBounds(capa.getBounds(), { padding: [20,20] });
+  setStatus('Cargados ' + capa.getLayers().length + ' polígonos.');
+}
+
+// =============== Carga inicial ===============
+async function cargarDesdeJSON() {
+  try {
+    const res = await fetch(JSON_URL, { cache: 'no-cache' });
+    if (!res.ok) throw new Error(res.status);
+    const arr = await res.json();
+
+    // guardamos los polígonos base para futuros refresh
+    BASE_POLYGONS = Array.isArray(arr) ? arr : [];
+
+    // primera carga desde Sheets
+    const datosSheets = await cargarDatosDesdeSheets();
+    let merged = mergeSheets(BASE_POLYGONS, datosSheets);
+    merged = mergeRealizacionesLocales(merged);
+    pintar(merged);
+    pintarLineas(ZONAS_SIN_RELLENO);
+
+    // iniciar auto-refresh cada 5m
+    startAutoRefresh();
+    setStatus('Datos cargados. Auto-refresh activo (5m).');
+
+  } catch (e) {
+    console.error(e);
+    setStatus('Error al cargar datos: ' + e.message);
+  }
+}
+
+cargarDesdeJSON();
+
+
+async function refreshFromSheet() {
+  // si aún no tenemos la base de polígonos, hacemos la carga completa
+  if (!BASE_POLYGONS || !BASE_POLYGONS.length) {
+    await cargarDesdeJSON();
+    return;
+  }
+
+  try {
+    const datosSheets = await cargarDatosDesdeSheets();
+    let merged = mergeSheets(BASE_POLYGONS, datosSheets);
+    merged = mergeRealizacionesLocales(merged); // respeta overrides locales
+    pintar(merged);
+    pintarLineas(ZONAS_SIN_RELLENO);
+    setStatus('Actualizado desde Sheets (' + new Date().toLocaleTimeString() + ').');
+  } catch (e) {
+    console.warn('Refresh desde Sheets falló:', e);
+    setStatus('No se pudo actualizar desde Sheets.');
+  }
+}
+
+
+// =============== Panel de registros ===============
+const btnReg   = document.getElementById('btn-registros');
+const overlay  = document.getElementById('overlay');
+const tbody    = document.getElementById('tbody');
+const resumen  = document.getElementById('resumen');
+const btnSync  = document.getElementById('btn-sync');
+
+let filterDays = 30, filterId = "", filterCapitan = "", filterEstado = "all";
+function updateSyncBadge() {
+  const n = queueGet().length;
+  btnSync.textContent = `Sincronizar (${n})`;
+  btnSync.title = n ? `${n} pendiente(s) para enviar al Spreadsheet` : 'No hay pendientes';
+}
+function openPanel() {
+  document.getElementById('filter-days').value = String(filterDays === 'all' ? 'all' : filterDays);
+  document.getElementById('filter-id').value   = filterId;
+  document.getElementById('filter-cap').value  = filterCapitan;
+  document.getElementById('filter-estado').value = filterEstado;
+  renderRegistros(); updateSyncBadge(); overlay.style.display = 'flex';
+}
+function closePanel() { overlay.style.display = 'none'; }
+function getFilteredRecords() {
+  const data = leerRealizacionesLS().slice().sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
+  const now = Date.now();
+  const days = filterDays === 'all' ? 'all' : Number(filterDays);
+  const idq  = (filterId || '').trim();
+  const capq = (filterCapitan || '').trim().toLowerCase();
+  const estq = (filterEstado || 'all');
+  return data.filter(r => {
+    if (days !== 'all') {
+      const t = r.fecha ? new Date(r.fecha).getTime() : NaN;
+      if (isNaN(t)) return false;
+      if (now - t > days*24*60*60*1000) return false;
+    }
+    if (idq && String(r.id) !== idq) return false;
+    if (capq) {
+      const val = String(r.capitan || '').toLowerCase();
+      if (!val.includes(capq)) return false;
+    }
+    if (estq !== 'all') {
+      const val = String(r.estado || '').toLowerCase();
+      if (estq.toLowerCase() !== val) return false;
+    }
+    return true;
+  });
+}
+function renderRegistros() {
+  const data = getFilteredRecords();
+  tbody.innerHTML = '';
+  if (!data.length) { resumen.textContent = 'No hay registros para el filtro seleccionado.'; return; }
+  const rangeTxt = filterDays === 'all' ? 'Todos' : `Últimos ${filterDays} día(s)`;
+  const idTxt  = filterId      ? ` | ID=${filterId}` : '';
+  const capTxt = filterCapitan ? ` | Capitán~"${filterCapitan}"` : '';
+  const estTxt = filterEstado !== 'all' ? ` | Estado=${filterEstado}` : '';
+  resumen.textContent = `Total: ${data.length} registro(s). Filtro: ${rangeTxt}${idTxt}${capTxt}${estTxt}`;
+  for (const r of data) {
+    const tr = document.createElement('tr');
+    const f = r.fecha ? new Date(r.fecha) : null;
+    const ftxt = (f && !isNaN(f)) ? fmtDateInput(f) : '—';
+    tr.innerHTML = `<td>${ftxt}</td><td>${r.id ?? ''}</td><td>${(r.capitan ?? '').replace(/</g,'&lt;')}</td><td>${(r.territorio ?? '').replace(/</g,'&lt;')}</td><td>${r.estado ?? ''}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+btnReg.addEventListener('click', openPanel);
+document.getElementById('btn-cerrar').addEventListener('click', closePanel);
+overlay.addEventListener('click', (e)=>{ if (e.target === overlay) closePanel(); });
+document.getElementById('btn-aplicar').addEventListener('click', () => {
+  const v = document.getElementById('filter-days').value;
+  filterDays=(v==='all'?'all':Number(v));
+  filterId=(document.getElementById('filter-id').value||'').trim();
+  filterCapitan=(document.getElementById('filter-cap').value||'').trim();
+  filterEstado=document.getElementById('filter-estado').value||'all';
+  renderRegistros();
+});
+document.getElementById('btn-limpiar').addEventListener('click', () => {
+  filterDays=30; filterId=""; filterCapitan=""; filterEstado="all";
+  document.getElementById('filter-days').value="30";
+  document.getElementById('filter-id').value="";
+  document.getElementById('filter-cap').value="";
+  document.getElementById('filter-estado').value="all";
+  renderRegistros();
+});
+document.getElementById('btn-exp-json').addEventListener('click', () => {
+  const data = getFilteredRecords();
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='realizaciones_locales_filtrado.json';
+  document.body.appendChild(a); a.click(); a.remove();
+});
+document.getElementById('btn-exp-csv').addEventListener('click', () => {
+  const data = getFilteredRecords();
+  const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+  const rows = [['fecha','id','capitan','territorio','estado']];
+  for (const r of data) rows.push([r.fecha || '', r.id || '', r.capitan || '', r.territorio || '', r.estado || '']);
+  const csv = rows.map(row => row.map(esc).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='realizaciones_locales_filtrado.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+});
+document.getElementById('btn-borrar-todo').addEventListener('click', () => {
+  if (!confirm('¿Seguro que querés borrar TODOS los registros locales?')) return;
+  localStorage.removeItem(LS_REAL);
+  renderRegistros();
+  setStatus('Registros locales borrados.');
+});
+btnSync.addEventListener('click', async () => {
+  const arr = queueGet(); if (!arr.length) { setStatus("No hay pendientes para sincronizar."); updateSyncBadge(); return; }
+  setStatus("Sincronizando pendientes ("+arr.length+")...");
+  for (let i=0; i<arr.length; i++) {
+    const rec = arr[i];
+    try {
+      const res = await enviarAlSheet(rec);
+      if (res.ok) { queueRemoveAt(i); i--; }
+    } catch (e) { console.warn("Error en sync de un registro:", e); }
+  }
+  setStatus("Sincronización terminada. Pendientes: "+queueGet().length);
+  updateSyncBadge();
+});
+updateSyncBadge();
+</script>
+
+<!--
+Notas:
+- En el popup: ahora NO se pide el territorio; se usa el del polígono. Sí se elige la FECHA con calendario.
+- Para lectura:
+   A) Pegá un CSV publicado en SHEET_CSV (formato .../pub?gid=0&single=true&output=csv)
+   B) Si no, el script usa GViz (planilla “Cualquiera con el vínculo – Lector”).
+- Para escritura:
+   Pegá la URL del Web App de Apps Script (termina en /exec) y que tenga doPost(e) + doGet(e), desplegado como “Cualquiera con el vínculo”.
+-->
+</body>
+</html>
