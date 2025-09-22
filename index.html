@@ -194,6 +194,7 @@ function setStatus(msg) {
 }
 
 function pintarLineas(arr) {
+  if (typeof capaLineas === "undefined" || !capaLineas) { window.capaLineas = L.featureGroup().addTo(map); }
   capaLineas.clearLayers();
   (arr || []).forEach(z => {
     if (!z || !Array.isArray(z.coords) || z.coords.length < 2) return;
