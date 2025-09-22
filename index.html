@@ -176,6 +176,7 @@ const LS_QUEUE = "realizaciones_queue_pend"; // cola de pendientes para enviar
 const map  = L.map("map").setView(MAP_CENTER, MAP_ZOOM);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
 const capa = L.featureGroup().addTo(map);
+const capaLineas = L.featureGroup().addTo(map);
 
 // Aviso si el webhook no parece correcto
 (function sanity() {
