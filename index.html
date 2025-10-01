@@ -512,7 +512,7 @@ function pintar(poligonos) {
       p.territorioStr = p.territorioStr || terTxt;
 
       const poly = L.polygon(p.coords, estiloPorEstado(color));
-      poly.bindTooltip(p.id, { permanent: true, direction: 'center', className: 'label' });
+      poly.bindTooltip('ID: ' + p.id, { permanent: true, direction: 'center', className: 'label' });
 
       const capHtml = p.capitan ? ('Capitán: ' + p.capitan + '<br/>') : '';
       const terHtml = p.territorioStr ? ('Territorio: ' + p.territorioStr + '<br/>') : '';
@@ -712,88 +712,51 @@ Notas:
 <script>
 // ======= INYECCIÓN: Colores por territorio + marcos de agrupación =======
 (function() {
-  if (typeof L === 'undefined' || typeof map === 'undefined') return;
+  if (typeof L === 'undefined') return;
+  if (typeof map === 'undefined') return;
 
-  // Asegurar capas necesarias
-  if (typeof window.capa === 'undefined') window.capa = L.featureGroup().addTo(map);
-  if (typeof window.capaLineas === 'undefined') window.capaLineas = L.featureGroup().addTo(map);
-
-  // Color único por número de territorio (hash → HSL)
-  function hashTerritorio(str) {
-    str = String(str || "");
-    let h = 0;
-    for (let i = 0; i < str.length; i++) h = ((h << 5) - h) + str.charCodeAt(i) | 0;
-    return Math.abs(h);
+  if (typeof capa === 'undefined') {
+    window.capa = L.featureGroup().addTo(map);
   }
-  function colorPorTerritorio(territorio) {
-    const h = hashTerritorio(territorio) % 360;
-    return `hsl(${h}, 70%, 35%)`;
   }
-
-  // Helpers existentes si están definidos
-  const _fmtDateInput = (typeof fmtDateInput === 'function') ? fmtDateInput : (d) => new Date(d).toISOString().slice(0,10);
-  const _difMeses = (typeof diferenciaEnMeses === 'function') ? diferenciaEnMeses : function(a,b){ const A=new Date(a),B=new Date(b); return (B.getFullYear()-A.getFullYear())*12 + (B.getMonth()-A.getMonth()); };
-  const _estiloPorEstado = (typeof estiloPorEstado === 'function') ? estiloPorEstado : function(colorClave) { const m={red:'#ff0000',yellow:'#ffd500',blue:'#3388ff',green:'#2e7d32'}; return { color: m[colorClave]||'#333', weight:1, fillOpacity:0.25, fillColor: m[colorClave]||'#90caf9' }; };
-  const _territorioDef = (typeof territorioDef === 'function') ? territorioDef : function(p) { return (p && (p.numeroTerritorio||p.territorio||p.id||'')) + ''; };
-  const _formHTML = (typeof formHTML === 'function') ? formHTML : function(id){ return `<div><em>Formulario no disponible</em> (id ${id})</div>`; };
-  const _attachFormHandlers = (typeof attachFormHandlers === 'function') ? attachFormHandlers : function(){};
-  const _setStatus = (typeof setStatus === 'function') ? setStatus : function(x){ console.log('[STATUS]', x); };
-
-  // Sobrescribir pintar(): bordes por territorio, sin marcos de agrupación
-  window.pintar = function(poligonos) {
-    try { if (capa && capa.clearLayers) capa.clearLayers(); } catch(e){ console.warn(e); }
-
-    (poligonos || []).forEach(p => {
-      if (!p || !Array.isArray(p.coords) || p.coords.length < 3) return;
-      try {
-        const fechaValida = p.fecha instanceof Date && !isNaN(p.fecha);
-        const fechaHtml = fechaValida ? 'Fecha: ' + _fmtDateInput(p.fecha) + '<br/>' : '';
-        let colorEstado = 'red';
-        const diffMeses = fechaValida ? _difMeses(p.fecha, new Date()) : Infinity;
-        if (diffMeses < 2) colorEstado = p.finalizado === 'Si' ? 'green' : 'blue';
-        else if (diffMeses <= 3) colorEstado = 'yellow';
-
-        const terTxt = String(p.numeroTerritorio ?? _territorioDef(p));
-        p.territorioStr = p.territorioStr || terTxt;
-
-        // Estilo: borde por territorio, relleno por estado
-        const borde = colorPorTerritorio(terTxt);
-        const estiloEstado = _estiloPorEstado(colorEstado);
-        const estilo = {
-          color: borde,
-          weight: 5,
-          opacity: 1,
-          fillOpacity: 0.30,
-          fillColor: estiloEstado.fillColor || '#90caf9'
-        };
-
-        const poly = L.polygon(p.coords, estilo);
-        if (p.id != null) try { poly.bindTooltip('ID: ' + p.id, { permanent: true, direction: 'center', className: 'label' }); } catch(_){}
-
-        const capHtml = p.capitan ? ('Capitán: ' + p.capitan + '<br/>') : '';
+  const capHtml = p.capitan ? ('Capitán: ' + p.capitan + '<br/>') : '';
         const terHtml = p.territorioStr ? ('Territorio: ' + p.territorioStr + '<br/>') : '';
         const content = `<b>Territorio ${p.id ?? ''}</b><br/>${fechaHtml}${capHtml}${terHtml}Estado: ${p.finalizado || 'Desconocido'}<hr/>`
                       + _formHTML(p.id, { capitan: p.capitan, estado: p.finalizado || 'Si', fechaValida: p.fecha });
         try {
           poly.bindPopup(content, { minWidth: 260 });
           poly.on("popupopen", () => _attachFormHandlers(poly, p));
-          poly.on("mouseover", () => poly.setStyle({ weight: 7 }));
-          poly.on("mouseout",  () => poly.setStyle({ weight: 5 }));
+          poly.on("mouseover", () => poly.bringToFront());
         } catch(_){}
-        capa.addLayer(poly);
+        if (capa) capa.addLayer(poly);
+
+        const g = grupos.get(terTxt) || { color: borde, layers: [] };
+        g.layers.push(poly);
+        grupos.set(terTxt, g);
       } catch(e) {
         console.warn('Polígono inválido', p, e);
       }
     });
 
     try {
-      if (capa && capa.getLayers && capa.getLayers().length) map.fitBounds(capa.getBounds(), { padding: [20,20] });
+      if (capa && capa.getLayers && capa.getLayers().length) {
+        map.fitBounds(capa.getBounds(), { padding: [20,20] });
+      }
     } catch(_){}
 
     _setStatus('Cargados ' + (capa?.getLayers?.().length || 0) + ' polígonos.');
   };
-})();
+});
 
+  // Toggle botón
+  (function ensureToggleButton(){
+    if (!document.getElementById('btn-toggle-grupos')) return;
+    let gruposVisibles = true;
+    document.getElementById('btn-toggle-grupos').addEventListener('click', () => {
+      gruposVisibles = !gruposVisibles;
+      if (gruposVisibles) capaAgrupaciones.addTo(map); else map.removeLayer(capaAgrupaciones);
+    });
+  })();
 
 })();
 </script>
