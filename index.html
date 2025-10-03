@@ -339,25 +339,18 @@
         return s;
       }
       function obtenerColor(fecha, finalizado) {
-        if (!(fecha instanceof Date) || isNaN(fecha)) return "red";
+        // Sin fecha válida => gris
+        if (!(fecha instanceof Date) || isNaN(fecha)) return "gray";
+      
         const ahora = new Date();
         const diffMeses = diferenciaEnMeses(fecha, ahora);
-        const fin = String(finalizado ?? "")
-          .trim()
-          .toLowerCase();
+      
+        const fin = String(finalizado ?? "").trim().toLowerCase();
         const esSi =
-          [
-            "si",
-            "sí",
-            "true",
-            "1",
-            "ok",
-            "finalizado",
-            "completo",
-            "terminado",
-          ].includes(fin) || finalizado === true;
+          ["si","sí","true","1","ok","finalizado","completo","terminado"].includes(fin) || finalizado === true;
+      
         if (diffMeses < 2 && !esSi) return "blue";
-        if (diffMeses < 2 && esSi) return "green";
+        if (diffMeses < 2 &&  esSi) return "green";
         if (diffMeses <= 3) return "yellow";
         return "red";
       }
@@ -536,9 +529,10 @@
             infoPanel.style.display = "block";
             polygonId.textContent = p.id;
             polygonFecha.textContent =
-              p.fecha instanceof Date && !isNaN(p.fecha)
+              (p.fecha instanceof Date && !isNaN(p.fecha))
                 ? p.fecha.toLocaleDateString()
-                : "Fecha no disponible";
+                : "No hay datos";
+
           });
         });
 
@@ -696,19 +690,23 @@
   }
   function colorKeyPorFechaEstado(p){
     const fechaValida = p.fecha instanceof Date && !isNaN(p.fecha);
-    const diffMeses = fechaValida ? diferenciaEnMeses(p.fecha, new Date()) : Infinity;
+    if(!fechaValida) return 'gray'; // sin datos -> gris
+    const diffMeses = diferenciaEnMeses(p.fecha, new Date());
     if(diffMeses < 2) return p.finalizado === 'Si' ? 'green' : 'blue';
     if(diffMeses <= 3) return 'yellow';
     return 'red';
   }
-  function estiloPorKey(key){
-    const base = { color:'#333', weight:1, fillOpacity:0.35 };
-    if(key==='blue')   return { ...base, fillColor:'#3388ff' };
-    if(key==='green')  return { ...base, fillColor:'#2e7d32' };
-    if(key==='yellow') return { ...base, fillColor:'#ffd500' };
-    if(key==='red')    return { ...base, fillColor:'#b53a22' };
-    return { ...base, fillColor:'#90caf9' };
-  }
+
+function estiloPorKey(key){
+  const base = { color:'#333', weight:1, fillOpacity:0.35 };
+  if(key==='blue')   return { ...base, fillColor:'#3388ff' };
+  if(key==='green')  return { ...base, fillColor:'#2e7d32' };
+  if(key==='yellow') return { ...base, fillColor:'#ffd500' };
+  if(key==='red')    return { ...base, fillColor:'#b53a22' };
+  if(key==='gray')   return { ...base, fillColor:'#9e9e9e' }; // ← NUEVO
+  return { ...base, fillColor:'#90caf9' };
+}
+
 
   // ====== Modal & Form ======
   function ensureUI(){
