@@ -37,6 +37,7 @@
         font-family: Arial, sans-serif;
         box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.5);
         z-index: 1000;
+        visibility: hidden;
       }
       .label {
         font-size: 14px;
@@ -492,7 +493,40 @@
       const infoPanel = document.getElementById("info-panel");
       const polygonId = document.getElementById("polygon-id");
       const polygonFecha = document.getElementById("polygon-fecha");
+      const layerById = new Map();
+      const dataById  = new Map();
+      function firstPartId(x){ return String(x ?? "").split("|")[0].trim(); }
+      const READ_CSV_URL = (typeof SHEET_CSV !== "undefined" && SHEET_CSV) ? SHEET_CSV : "";
+      const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbweVDu_2Vn0ygEMQdkgqbVprTKJ2kjAT--Wimo0cVTaASLK3-yJMkt175DJq-pky1Y/exec";
+  
+  
+      function parseFecha(s){
+        if(!s) return null;
+        const t = String(s).trim();
+        const d1 = new Date(t); if(!isNaN(d1)) return d1;
+        const m = t.match(/^([0-3]?\d)[\/\-]([0-1]?\d)[\/\-](\d{4})$/);
+        if(m){ const [_,dd,mm,yy]=m; return new Date(parseInt(yy), parseInt(mm)-1, parseInt(dd)); }
+        const m2 = t.match(/^(\d{4})[\/\-]([0-1]?\d)[\/\-]([0-3]?\d)$/);
+        if(m2){ const [_,yy,mm,dd]=m2; return new Date(parseInt(yy), parseInt(mm)-1, parseInt(dd)); }
+        return null;
+      }
+    function normalizarFinalizado(v){
+      const s = String(v ?? '').trim().toLowerCase();
+      if(!s) return '';
+      if(['si','sí','s','true','1','ok','finalizado','completo','terminado'].includes(s)) return 'Si';
+      if(['no','n','false','0','pendiente','incompleto','en curso','trabajando'].includes(s)) return 'No';
+      return s;
+    }
 
+    function estiloPorKey(key){
+      const base = { color:'#333', weight:1, fillOpacity:0.35 };
+      if(key==='blue')   return { ...base, fillColor:'#3388ff' };
+      if(key==='green')  return { ...base, fillColor:'#2e7d32' };
+      if(key==='yellow') return { ...base, fillColor:'#ffd500' };
+      if(key==='red')    return { ...base, fillColor:'#b53a22' };
+      if(key==='gray')   return { ...base, fillColor:'#9e9e9e' }; // ← NUEVO
+      return { ...base, fillColor:'#90caf9' };
+    }
       /*************** CARGA DEL MAPA ***************/
       async function cargarMapa() {
         const datosSheets = await cargarDatosDesdeSheets();
@@ -526,12 +560,13 @@
           });
 
           poly.on("click", function () {
-            infoPanel.style.display = "block";
+            abrirForm(p);
+            /*infoPanel.style.display = "block";
             polygonId.textContent = p.id;
             polygonFecha.textContent =
               (p.fecha instanceof Date && !isNaN(p.fecha))
                 ? p.fecha.toLocaleDateString()
-                : "No hay datos";
+                : "No hay datos";*/
 
           });
         });
@@ -539,6 +574,218 @@
         actualizarContadores();
       }
 
+      function repintarContadores(){
+        const ids = { blue:'contador-azul', green:'contador-verde', yellow:'contador-amarillo', red:'contador-rojo' };
+        for(const k of Object.keys(ids)){
+          const el = document.getElementById(ids[k]);
+          if(el) el.textContent = String(contadores[k]||0);
+        }
+      }
+
+      function abrirForm(p){
+        console.log("abrirForm");
+        const textContent =
+              (p.fecha instanceof Date && !isNaN(p.fecha))
+                ? p.fecha.toLocaleDateString()
+                : "No hay datos";
+        const titulo = `Registrar territorio ${p.territorio || p.id} - Última visita: ${textContent}`;
+        showModal(formHTML(p.id, { capitan:p.capitan||'', estado:p.finalizado||'Si', fechaValida:p.fecha||new Date(), comentario:p.comentario||'' }), titulo);
+        document.getElementById(`cancel-${p.id}`).onclick = hideModal;
+        document.getElementById(`save-${p.id}`).onclick = async () => {
+          const cap = (document.getElementById(`cap-${p.id}`)?.value || '').trim();
+          const est = (document.getElementById(`est-${p.id}`)?.value || 'Si');
+          const com = (document.getElementById(`com-${p.id}`)?.value || '').trim();
+          const dateStr = (document.getElementById(`fec-${p.id}`)?.value || '').trim();
+          const fechaISO = dateStr ? new Date(dateStr + 'T00:00:00').toISOString() : new Date().toISOString();
+          const rec = { id:p.id, territorio:String(p.territorio ?? p.id), capitan:cap, estado:est, finalizado:est, fecha:fechaISO, comentario:com };
+          const res = await enviarAlSheet(rec);
+          if(res.ok) showToast(`Guardado (ID ${p.id}) vía ${res.via}.`); else showToast(`Guardado local (sin enviar): ${res.reason || 'error'}`);
+          p.capitan = cap; p.finalizado = normalizarFinalizado(est); p.fecha = new Date(fechaISO); p.comentario = com;
+          repintarUno(p);
+          hideModal();
+          document.dispatchEvent(new CustomEvent('territorio:guardado', { detail:{ record: rec } }));
+          setTimeout(actualizarDesdePlanilla, 600);
+        };
+      }
+
+  async function actualizarDesdePlanilla(){
+    const regs = await leerPlanilla();
+    if(!regs.length){ showToast('No se pudo leer la planilla'); return; }
+    dataById.clear();
+    for(const r of regs){
+      const fid = firstPartId(r.id);
+      if(!fid) continue;
+      const prev = dataById.get(fid);
+      const dt = parseFecha(r.fecha) || new Date(0);
+      const prevDt = prev ? (parseFecha(prev.fecha) || new Date(0)) : new Date(0);
+      if(!prev || dt >= prevDt) dataById.set(fid, r);
+    }
+    for(const p of poligonos){
+      const rec = dataById.get(firstPartId(p.id));
+      if(!rec) continue;
+      p.capitan = rec.capitan || p.capitan || '';
+      p.territorio = rec.territorio || p.territorio || p.id;
+      p.finalizado = normalizarFinalizado(rec.finalizado || rec.estado || p.finalizado);
+      const df = parseFecha(rec.fecha);
+      p.fecha = df || p.fecha;
+      p.comentario = rec.comentario || p.comentario || '';
+      repintarUno(p);
+    }
+    showToast('Planilla aplicada');
+  }
+
+      // ====== Modal & Form ======
+  function ensureUI(){
+    const overlay = document.getElementById('territorio-overlay');
+    const _ov = document.getElementById('territorio-overlay');
+    _ov.style.display = 'flex';
+    _ov.style.zIndex = String(1e6);
+    if(!overlay) return;
+    const closeBtn = document.getElementById('territorio-close');
+    if(closeBtn) closeBtn.onclick = ()=> overlay.style.display='none';
+    overlay.addEventListener('click',(e)=>{ if(e.target===overlay) overlay.style.display='none'; });
+  }
+  function showModal(html, title){
+    ensureUI();
+    console.log("showModal");
+    document.getElementById('territorio-title').textContent = title || 'Registrar territorio';
+    document.getElementById('territorio-body').innerHTML = html;
+    document.getElementById('territorio-overlay').style.display='flex';
+  }
+  function hideModal(){ const o=document.getElementById('territorio-overlay'); if(o) o.style.display='none'; }
+
+  function formHTML(id, valores={}){
+    const { capitan='', estado='Si', fechaValida=new Date(), comentario='' } = valores;
+    const fechaInput = fmtDateInput(fechaValida);
+    return `
+      <form class="form-territorio" id="form-territorio-${id}" style="font-family:system-ui,Segoe UI,Roboto,Arial">
+        <div class="row" style="margin-bottom:10px">
+          <label for="cap-${id}" style="display:block;margin-bottom:4px;font-weight:600;color:#333">Capitán</label>
+          <input id="cap-${id}" value="${capitan || ''}" placeholder="Nombre del capitán"
+                 style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box"/>
+        </div>
+        <div class="row" style="margin-bottom:10px">
+          <label for="fec-${id}" style="display:block;margin-bottom:4px;font-weight:600;color:#333">Fecha</label>
+          <input id="fec-${id}" type="date" value="${fechaInput}"
+                 style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box"/>
+        </div>
+        <div class="row" style="margin-bottom:10px">
+          <label for="est-${id}" style="display:block;margin-bottom:4px;font-weight:600;color:#333">¿Finalizó?</label>
+          <select id="est-${id}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box">
+            <option ${estado==='Si'?'selected':''} value="Si">Si</option>
+            <option ${estado==='No'?'selected':''} value="No">No</option>
+          </select>
+        </div>
+        <div class="row" style="margin-bottom:10px">
+          <label for="com-${id}" style="display:block;margin-bottom:4px;font-weight:600;color:#333">Comentario</label>
+          <textarea id="com-${id}" placeholder="Observaciones..." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;min-height:68px;resize:vertical;box-sizing:border-box"></textarea>
+        </div>
+        <div class="actions" style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="btn btn-cancelar" id="cancel-${id}" style="border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;background:#e5e7eb;color:#111">Cancelar</button>
+          <button type="button" class="btn btn-guardar" id="save-${id}" style="border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;background:#2e7d32;color:#fff">Guardar</button>
+        </div>
+      </form>
+    `;
+  }
+
+  function fmtDateInput(d){
+    if(!(d instanceof Date) || isNaN(d)) d = new Date();
+    const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function showToast(msg){
+    const t = document.getElementById("territorio-toast");
+    t.textContent = msg || "";
+    t.style.display = msg ? "block" : "none";
+    if(msg){ clearTimeout(showToast._t); showToast._t = setTimeout(()=>t.style.display="none", 4000); }
+  }
+
+  function repintarUno(p){
+    const key = colorKeyPorFechaEstado(p);
+    const lyr = layerById.get(String(p.id));
+    if(lyr) lyr.setStyle( estiloPorKey(key) );
+    contadores = { blue:0, green:0, yellow:0, red:0 };
+    for(const pol of poligonos){
+      const k = colorKeyPorFechaEstado(pol);
+      contadores[k] = (contadores[k]||0)+1;
+    }
+    repintarContadores();
+    // actualizar panel informativo si existe
+    const spanId = document.getElementById('polygon-id');
+    const spanFecha = document.getElementById('polygon-fecha');
+    if(spanId && spanFecha && p){
+      spanId.textContent = p.id;
+      spanFecha.textContent = p.fecha instanceof Date && !isNaN(p.fecha) ? fmtDateInput(p.fecha) : '—';
+    }
+  }
+
+    function diferenciaEnMeses(a,b){
+    if(!(a instanceof Date) || isNaN(a)) return Infinity;
+    let m = (b.getFullYear()-a.getFullYear())*12 + (b.getMonth()-a.getMonth());
+    if(b.getDate() < a.getDate()) m -= 1;
+    return m;
+  }
+  function colorKeyPorFechaEstado(p){
+    const fechaValida = p.fecha instanceof Date && !isNaN(p.fecha);
+    if(!fechaValida) return 'gray'; // sin datos -> gris
+    const diffMeses = diferenciaEnMeses(p.fecha, new Date());
+    if(diffMeses < 2) return p.finalizado === 'Si' ? 'green' : 'blue';
+    if(diffMeses <= 3) return 'yellow';
+    return 'red';
+  }
+
+  async function leerPlanilla(){
+    if(READ_CSV_URL){
+      try{
+        const r = await fetch(READ_CSV_URL, { cache:'no-store' });
+        const txt = await r.text();
+        const lines = txt.split(/\r?\n/).filter(Boolean);
+        if(!lines.length) return [];
+        const header = lines[0].split(',').map(h=>h.trim().toLowerCase());
+        const out = [];
+        for(let i=1;i<lines.length;i++){
+          const cols = lines[i].split(',');
+          const o = {};
+          cols.forEach((v,idx)=> o[header[idx] || ('col'+idx)] = (v ?? '').trim());
+          out.push(o);
+        }
+        return out.map(o => ({
+          id: o.id ?? o['territorio'] ?? '',
+          fecha: o.fecha ?? o['date'] ?? '',
+          finalizado: o.finalizado ?? o['estado'] ?? '',
+          capitan: o.capitan ?? '',
+          comentario: o.comentario ?? o['obs'] ?? '',
+          territorio: o.territorio ?? ''
+        }));
+      }catch(e){ console.warn('Fallo CSV', e); }
+    }
+    try{
+      const r = await fetch(WEBHOOK_URL + '?list=1', { cache:'no-store' });
+      const data = await r.json();
+      if(Array.isArray(data)) return data;
+    }catch(e){ console.warn('Fallo ?list=1', e); }
+    return [];
+  }
+
+  async function enviarAlSheet(rec){
+    try{
+      const body = new URLSearchParams({ payload: JSON.stringify(rec) });
+      const r = await fetch(WEBHOOK_URL, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=utf-8'}, body });
+      const text = await r.text().catch(()=>'');
+      if(r.ok && /"ok"\s*:\s*true/.test(text)) return { ok:true, via:'POST' };
+      if(r.status===405) throw new Error('405');
+      throw new Error(text || ('HTTP '+r.status));
+    }catch(err){
+      try{
+        const url = WEBHOOK_URL + '?' + new URLSearchParams({ payload: JSON.stringify(rec) });
+        await fetch(url, { method:'GET', mode:'no-cors' });
+        return { ok:true, via:'GET-no-cors' };
+      }catch(e2){
+        return { ok:false, reason:String(e2) };
+      }
+    }
+  }
       /*************** RANKING (SIN HACER, MÁS ANTIGUOS) ***************/
       async function mostrarRanking() {
         try {
@@ -634,7 +881,7 @@
   </div>
 </div>
 <div id="territorio-toast" style="position:fixed;left:12px;bottom:12px;background:rgba(255,255,255,.95);padding:6px 10px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.15);font-size:12px;display:none;z-index:10001"></div>
-<button id="btn-actualizar-sheet" title="Leer planilla y repintar" style="position:fixed;right:12px;top:12px;z-index:1200;background:#2563eb;color:#fff;border:none;padding:8px 10px;border-radius:8px;font-weight:700;cursor:pointer">Actualizar</button>
+<button id="btn-actualizar-sheet" title="Leer planilla y repintar" style="position:fixed;right:12px;top:12px;z-index:1200;background:#2563eb;color:#fff;border:none;padding:8px 10px;border-radius:8px;font-weight:700;cursor:pointer;visibility:hidden;">Actualizar</button>
 
 
 <script>
@@ -654,17 +901,6 @@
   // ====== Helpers ======
   const $ = (sel)=> document.querySelector(sel);
   function firstPartId(x){ return String(x ?? "").split("|")[0].trim(); }
-  function showToast(msg){
-    const t = document.getElementById("territorio-toast");
-    t.textContent = msg || "";
-    t.style.display = msg ? "block" : "none";
-    if(msg){ clearTimeout(showToast._t); showToast._t = setTimeout(()=>t.style.display="none", 4000); }
-  }
-  function fmtDateInput(d){
-    if(!(d instanceof Date) || isNaN(d)) d = new Date();
-    const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0');
-    return `${y}-${m}-${day}`;
-  }
   function parseFecha(s){
     if(!s) return null;
     const t = String(s).trim();
@@ -682,20 +918,6 @@
     if(['no','n','false','0','pendiente','incompleto','en curso','trabajando'].includes(s)) return 'No';
     return s;
   }
-  function diferenciaEnMeses(a,b){
-    if(!(a instanceof Date) || isNaN(a)) return Infinity;
-    let m = (b.getFullYear()-a.getFullYear())*12 + (b.getMonth()-a.getMonth());
-    if(b.getDate() < a.getDate()) m -= 1;
-    return m;
-  }
-  function colorKeyPorFechaEstado(p){
-    const fechaValida = p.fecha instanceof Date && !isNaN(p.fecha);
-    if(!fechaValida) return 'gray'; // sin datos -> gris
-    const diffMeses = diferenciaEnMeses(p.fecha, new Date());
-    if(diffMeses < 2) return p.finalizado === 'Si' ? 'green' : 'blue';
-    if(diffMeses <= 3) return 'yellow';
-    return 'red';
-  }
 
 function estiloPorKey(key){
   const base = { color:'#333', weight:1, fillOpacity:0.35 };
@@ -708,98 +930,8 @@ function estiloPorKey(key){
 }
 
 
-  // ====== Modal & Form ======
-  function ensureUI(){
-    const overlay = document.getElementById('territorio-overlay');
-    const _ov = document.getElementById('territorio-overlay');
-    _ov.style.display = 'flex';
-    _ov.style.zIndex = String(1e6);
-    if(!overlay) return;
-    const closeBtn = document.getElementById('territorio-close');
-    if(closeBtn) closeBtn.onclick = ()=> overlay.style.display='none';
-    overlay.addEventListener('click',(e)=>{ if(e.target===overlay) overlay.style.display='none'; });
-  }
-  function showModal(html, title){
-    ensureUI();
-    console.log("showModal");
-    document.getElementById('territorio-title').textContent = title || 'Registrar territorio';
-    document.getElementById('territorio-body').innerHTML = html;
-    document.getElementById('territorio-overlay').style.display='flex';
-  }
-  function hideModal(){ const o=document.getElementById('territorio-overlay'); if(o) o.style.display='none'; }
+  
 
-  function formHTML(id, valores={}){
-    const { capitan='', estado='Si', fechaValida=new Date(), comentario='' } = valores;
-    const fechaInput = fmtDateInput(fechaValida);
-    return `
-      <form class="form-territorio" id="form-territorio-${id}" style="font-family:system-ui,Segoe UI,Roboto,Arial">
-        <div class="row" style="margin-bottom:10px">
-          <label for="cap-${id}" style="display:block;margin-bottom:4px;font-weight:600;color:#333">Capitán</label>
-          <input id="cap-${id}" value="${capitan || ''}" placeholder="Nombre del capitán"
-                 style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box"/>
-        </div>
-        <div class="row" style="margin-bottom:10px">
-          <label for="fec-${id}" style="display:block;margin-bottom:4px;font-weight:600;color:#333">Fecha</label>
-          <input id="fec-${id}" type="date" value="${fechaInput}"
-                 style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box"/>
-        </div>
-        <div class="row" style="margin-bottom:10px">
-          <label for="est-${id}" style="display:block;margin-bottom:4px;font-weight:600;color:#333">¿Finalizó?</label>
-          <select id="est-${id}" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;box-sizing:border-box">
-            <option ${estado==='Si'?'selected':''} value="Si">Si</option>
-            <option ${estado==='No'?'selected':''} value="No">No</option>
-          </select>
-        </div>
-        <div class="row" style="margin-bottom:10px">
-          <label for="com-${id}" style="display:block;margin-bottom:4px;font-weight:600;color:#333">Comentario</label>
-          <textarea id="com-${id}" placeholder="Observaciones..." style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px;font-size:14px;min-height:68px;resize:vertical;box-sizing:border-box"></textarea>
-        </div>
-        <div class="actions" style="display:flex;gap:8px;justify-content:flex-end">
-          <button type="button" class="btn btn-cancelar" id="cancel-${id}" style="border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;background:#e5e7eb;color:#111">Cancelar</button>
-          <button type="button" class="btn btn-guardar" id="save-${id}" style="border:none;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer;background:#2e7d32;color:#fff">Guardar</button>
-        </div>
-      </form>
-    `;
-  }
-  async function enviarAlSheet(rec){
-    try{
-      const body = new URLSearchParams({ payload: JSON.stringify(rec) });
-      const r = await fetch(WEBHOOK_URL, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=utf-8'}, body });
-      const text = await r.text().catch(()=>'');
-      if(r.ok && /"ok"\s*:\s*true/.test(text)) return { ok:true, via:'POST' };
-      if(r.status===405) throw new Error('405');
-      throw new Error(text || ('HTTP '+r.status));
-    }catch(err){
-      try{
-        const url = WEBHOOK_URL + '?' + new URLSearchParams({ payload: JSON.stringify(rec) });
-        await fetch(url, { method:'GET', mode:'no-cors' });
-        return { ok:true, via:'GET-no-cors' };
-      }catch(e2){
-        return { ok:false, reason:String(e2) };
-      }
-    }
-  }
-  function abrirForm(p){
-    console.log("abrirForm");
-    const titulo = `Registrar territorio ${p.territorio || p.id}`;
-    showModal(formHTML(p.id, { capitan:p.capitan||'', estado:p.finalizado||'Si', fechaValida:p.fecha||new Date(), comentario:p.comentario||'' }), titulo);
-    document.getElementById(`cancel-${p.id}`).onclick = hideModal;
-    document.getElementById(`save-${p.id}`).onclick = async () => {
-      const cap = (document.getElementById(`cap-${p.id}`)?.value || '').trim();
-      const est = (document.getElementById(`est-${p.id}`)?.value || 'Si');
-      const com = (document.getElementById(`com-${p.id}`)?.value || '').trim();
-      const dateStr = (document.getElementById(`fec-${p.id}`)?.value || '').trim();
-      const fechaISO = dateStr ? new Date(dateStr + 'T00:00:00').toISOString() : new Date().toISOString();
-      const rec = { id:p.id, territorio:String(p.territorio ?? p.id), capitan:cap, estado:est, finalizado:est, fecha:fechaISO, comentario:com };
-      const res = await enviarAlSheet(rec);
-      if(res.ok) showToast(`Guardado (ID ${p.id}) vía ${res.via}.`); else showToast(`Guardado local (sin enviar): ${res.reason || 'error'}`);
-      p.capitan = cap; p.finalizado = normalizarFinalizado(est); p.fecha = new Date(fechaISO); p.comentario = com;
-      repintarUno(p);
-      hideModal();
-      document.dispatchEvent(new CustomEvent('territorio:guardado', { detail:{ record: rec } }));
-      setTimeout(actualizarDesdePlanilla, 600);
-    };
-  }
 
   // ====== Pintado ======
 function bindLayerEvents(layer, p){
@@ -810,31 +942,7 @@ function bindLayerEvents(layer, p){
   });
 }
 
-  function repintarContadores(){
-    const ids = { blue:'contador-azul', green:'contador-verde', yellow:'contador-amarillo', red:'contador-rojo' };
-    for(const k of Object.keys(ids)){
-      const el = document.getElementById(ids[k]);
-      if(el) el.textContent = String(contadores[k]||0);
-    }
-  }
-  function repintarUno(p){
-    const key = colorKeyPorFechaEstado(p);
-    const lyr = layerById.get(String(p.id));
-    if(lyr) lyr.setStyle( estiloPorKey(key) );
-    contadores = { blue:0, green:0, yellow:0, red:0 };
-    for(const pol of poligonos){
-      const k = colorKeyPorFechaEstado(pol);
-      contadores[k] = (contadores[k]||0)+1;
-    }
-    repintarContadores();
-    // actualizar panel informativo si existe
-    const spanId = document.getElementById('polygon-id');
-    const spanFecha = document.getElementById('polygon-fecha');
-    if(spanId && spanFecha && p){
-      spanId.textContent = p.id;
-      spanFecha.textContent = p.fecha instanceof Date && !isNaN(p.fecha) ? fmtDateInput(p.fecha) : '—';
-    }
-  }
+
   function drawPoligonos(){
     territoriosLayer.clearLayers();
     layerById.clear();
@@ -855,63 +963,8 @@ function bindLayerEvents(layer, p){
   }
 
   // ====== Lectura planilla ======
-  async function leerPlanilla(){
-    if(READ_CSV_URL){
-      try{
-        const r = await fetch(READ_CSV_URL, { cache:'no-store' });
-        const txt = await r.text();
-        const lines = txt.split(/\r?\n/).filter(Boolean);
-        if(!lines.length) return [];
-        const header = lines[0].split(',').map(h=>h.trim().toLowerCase());
-        const out = [];
-        for(let i=1;i<lines.length;i++){
-          const cols = lines[i].split(',');
-          const o = {};
-          cols.forEach((v,idx)=> o[header[idx] || ('col'+idx)] = (v ?? '').trim());
-          out.push(o);
-        }
-        return out.map(o => ({
-          id: o.id ?? o['territorio'] ?? '',
-          fecha: o.fecha ?? o['date'] ?? '',
-          finalizado: o.finalizado ?? o['estado'] ?? '',
-          capitan: o.capitan ?? '',
-          comentario: o.comentario ?? o['obs'] ?? '',
-          territorio: o.territorio ?? ''
-        }));
-      }catch(e){ console.warn('Fallo CSV', e); }
-    }
-    try{
-      const r = await fetch(WEBHOOK_URL + '?list=1', { cache:'no-store' });
-      const data = await r.json();
-      if(Array.isArray(data)) return data;
-    }catch(e){ console.warn('Fallo ?list=1', e); }
-    return [];
-  }
-  async function actualizarDesdePlanilla(){
-    const regs = await leerPlanilla();
-    if(!regs.length){ showToast('No se pudo leer la planilla'); return; }
-    dataById.clear();
-    for(const r of regs){
-      const fid = firstPartId(r.id);
-      if(!fid) continue;
-      const prev = dataById.get(fid);
-      const dt = parseFecha(r.fecha) || new Date(0);
-      const prevDt = prev ? (parseFecha(prev.fecha) || new Date(0)) : new Date(0);
-      if(!prev || dt >= prevDt) dataById.set(fid, r);
-    }
-    for(const p of poligonos){
-      const rec = dataById.get(firstPartId(p.id));
-      if(!rec) continue;
-      p.capitan = rec.capitan || p.capitan || '';
-      p.territorio = rec.territorio || p.territorio || p.id;
-      p.finalizado = normalizarFinalizado(rec.finalizado || rec.estado || p.finalizado);
-      const df = parseFecha(rec.fecha);
-      p.fecha = df || p.fecha;
-      p.comentario = rec.comentario || p.comentario || '';
-      repintarUno(p);
-    }
-    showToast('Planilla aplicada');
-  }
+  
+
 
   // ====== Init ======
   document.getElementById('btn-actualizar-sheet').addEventListener('click', actualizarDesdePlanilla);
