@@ -8641,50 +8641,57 @@
     }
       /*************** CARGA DEL MAPA ***************/
       async function cargarMapa() {
-        const datosSheets = await cargarDatosDesdeSheets();
+  const datosSheets = await cargarDatosDesdeSheets();
 
-        contadores = { blue: 0, green: 0, yellow: 0, red: 0 };
+  // Helper: usa la parte 1 si existe; si no, la 0
+  const clave = (valor) => {
+    const parts = String(valor ?? "").trim().split("|").map(s => s.trim());
+    return (parts[1] && parts[1].length > 0) ? parts[1] : (parts[0] ?? "");
+  };
 
-        poligonos.forEach((p) => {
-          // 🔧 match por string para evitar "32" vs 32
-          const dato = datosSheets.find((d) => String(d.id).trim().split("|")[0] === String(p.id).trim().split("|")[0]);
-          p.fecha = dato ? dato.fecha : null;
-          p.finalizado = dato ? dato.finalizado : "";
+  contadores = { blue: 0, green: 0, yellow: 0, red: 0 };
 
-          const colorInicial = obtenerColor(p.fecha, p.finalizado);
-          if (contadores[colorInicial] != null) contadores[colorInicial]++;
+  poligonos.forEach((p) => {
+    // match por clave (parte 1 si existe, si no parte 0)
+    const dato = datosSheets.find((d) => clave(d.id) === clave(p.id));
 
-          const poly = L.polygon(p.coords, {
-            color: "black",
-            fillColor: colorInicial,
-            fillOpacity: 0.5,
-          }).addTo(map);
+    p.fecha = dato ? dato.fecha : null;
+    p.finalizado = dato ? dato.finalizado : "";
 
-          const tooltipContent = `
-          <div class="tooltip-content">
-            <div><strong>${p.id}</strong></div>
-          </div>
-        `;
-          poly.bindTooltip(tooltipContent, {
-            permanent: true,
-            direction: "center",
-            className: "label",
-          });
+    const colorInicial = obtenerColor(p.fecha, p.finalizado);
+    if (contadores[colorInicial] != null) contadores[colorInicial]++;
 
-          poly.on("click", function () {
-            abrirForm(p);
-            /*infoPanel.style.display = "block";
-            polygonId.textContent = p.id;
-            polygonFecha.textContent =
-              (p.fecha instanceof Date && !isNaN(p.fecha))
-                ? p.fecha.toLocaleDateString()
-                : "No hay datos";*/
+    const poly = L.polygon(p.coords, {
+      color: "black",
+      fillColor: colorInicial,
+      fillOpacity: 0.5,
+    }).addTo(map);
 
-          });
-        });
+    const tooltipContent = `
+      <div class="tooltip-content">
+        <div><strong>${p.id}</strong></div>
+      </div>
+    `;
+    poly.bindTooltip(tooltipContent, {
+      permanent: true,
+      direction: "center",
+      className: "label",
+    });
 
-        actualizarContadores();
-      }
+    poly.on("click", function () {
+      abrirForm(p);
+      // infoPanel.style.display = "block";
+      // polygonId.textContent = p.id;
+      // polygonFecha.textContent =
+      //   (p.fecha instanceof Date && !isNaN(p.fecha))
+      //     ? p.fecha.toLocaleDateString()
+      //     : "No hay datos";
+    });
+  });
+
+  actualizarContadores();
+}
+
 
       function repintarContadores(){
         const ids = { blue:'contador-azul', green:'contador-verde', yellow:'contador-amarillo', red:'contador-rojo' };
