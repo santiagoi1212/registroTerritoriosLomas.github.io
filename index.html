@@ -1,6 +1,40 @@
 <!DOCTYPE html>
 <html lang="es">
   <head>
+<script>
+// Early global helpers to ensure availability before any calls
+window.normalizarId = window.normalizarId || function normalizarId(x) {
+  let s = String(x ?? "")
+    .normalize("NFKC")
+    .replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, "")
+    .replace(/[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!s) return "";
+
+  const stripZeros = (v) => v.replace(/^0+/, "") || "0";
+
+  if (/^\d+$/.test(s)) return stripZeros(s);
+
+  let m = s.match(/(\d+)\s*$/);
+  if (m) return stripZeros(m[1]);
+
+  if (s.includes("|")) {
+    const right = s.split("|").pop();
+    m = right.match(/(\d+)(?!.*\d)/);
+    if (m) return stripZeros(m[1]);
+  }
+
+  const all = s.match(/\d+/g);
+  if (all && all.length) return stripZeros(all[all.length - 1]);
+
+  return s;
+};
+
+window.idKey = window.idKey || function idKey(x){ return window.normalizarId(x); };
+</script>
+
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Territorios Lomas de Solymar</title>
@@ -256,7 +290,7 @@
     </div>
 
     <div id="ranking-container"></div>
-    <button id="toggle-referencias">📋 Ver Información</button>"
+    <button id="toggle-referencias">📋 Ver Información</button>
     <script>
       /*************** CONFIG ***************/
       const SHEET_CSV =
@@ -266,12 +300,12 @@
       let contadores = { blue: 0, green: 0, yellow: 0, red: 0 };
 
       /*************** MAPA ***************/
-      const map = L.map("map").setView([-34.77118, -55.826602], 15);
+      const map = L.map("map").setView([-34.77118, -55.826602], 17);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "&copy; OpenStreetMap contributors",
       }).addTo(map);
 
-     /*************** POLÍGONOS (tu dataset) ***************/
+      /*************** POLÍGONOS (tu dataset) ***************/
       var poligonos = [
   {
     "id": "1601",
@@ -8476,6 +8510,47 @@
         document.getElementById("contador-rojo").textContent = contadores.red;
       }
 
+            // === AUTH CLIENT ===
+      const AUTH = {
+        get token() { return localStorage.getItem('auth_token') || ''; },
+        set token(v){ localStorage.setItem('auth_token', v || ''); },
+        get user()  { return localStorage.getItem('auth_user') || ''; },
+        set user(v) { localStorage.setItem('auth_user', v || ''); },
+        isLoggedIn(){ return !!this.token; },
+        logout(){ localStorage.removeItem('auth_token'); localStorage.removeItem('auth_user'); }
+      };
+
+      async function login(usuario, password){
+        const body = new URLSearchParams();
+        body.set('action','login');
+        body.set('usuario', usuario.trim().toLowerCase());
+        body.set('password', password);
+        const res = await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type':'application/x-www-form-urlencoded;charset=utf-8' },
+          body
+        });
+        const data = await res.json().catch(()=>({}));
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Login falló');
+        AUTH.token = data.token;
+        AUTH.user  = data.usuario;
+        return data;
+      }
+
+      async function requireLoginThen(next){
+        if (AUTH.isLoggedIn()) { next(); return; }
+        openLoginModal(async ({usuario, password, close}) => {
+          try {
+            await login(usuario, password);
+            close();
+            showToast('Sesión iniciada');
+            next();
+          } catch(e){
+            alert('Error: ' + e.message);
+          }
+        });
+      }
+
       /*************** FETCH CSV ROBUSTO (con fallbacks CORS) ***************/
       async function fetchTextWithFallback(sheetCsvUrl) {
         // Intento directo (sirve si usás Live Server/localhost y Google permite CORS)
@@ -8585,8 +8660,7 @@
             const finStr = (cols[idxFin] ?? "").trim();
 
             // 🔧 Guardamos id también como string para comparar con poligonos
-            const idNum = parseInt(idStr, 10);
-            const id = Number.isInteger(idNum) ? idNum : idStr; // conserva no numéricos
+            const id = (/^\d+$/.test(idStr) ? parseInt(idStr, 10) : idStr); // conserva no numéricos
             const fecha = parseFechaSeguro(fechaStr);
             const finalizado = normalizarFinalizado(finStr);
 
@@ -8607,7 +8681,7 @@
       const polygonFecha = document.getElementById("polygon-fecha");
       const layerById = new Map();
       const dataById  = new Map();
-      function firstPartId(x){ return String(x ?? "").split("|")[0].trim(); }
+      function idKey(x){ return normalizarId(x); }
       const READ_CSV_URL = (typeof SHEET_CSV !== "undefined" && SHEET_CSV) ? SHEET_CSV : "";
       const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbweVDu_2Vn0ygEMQdkgqbVprTKJ2kjAT--Wimo0cVTaASLK3-yJMkt175DJq-pky1Y/exec";
   
@@ -8641,57 +8715,50 @@
     }
       /*************** CARGA DEL MAPA ***************/
       async function cargarMapa() {
-  const datosSheets = await cargarDatosDesdeSheets();
+        const datosSheets = await cargarDatosDesdeSheets();
 
-  // Helper: usa la parte 1 si existe; si no, la 0
-  const clave = (valor) => {
-    const parts = String(valor ?? "").trim().split("|").map(s => s.trim());
-    return (parts[1] && parts[1].length > 0) ? parts[1] : (parts[0] ?? "");
-  };
+        contadores = { blue: 0, green: 0, yellow: 0, red: 0 };
 
-  contadores = { blue: 0, green: 0, yellow: 0, red: 0 };
+        poligonos.forEach((p) => {
+          // 🔧 match por string para evitar "32" vs 32
+          const dato = datosSheets.find((d) => normalizarId(d.id) === normalizarId(p.id));
+          p.fecha = dato ? dato.fecha : null;
+          p.finalizado = dato ? dato.finalizado : "";
 
-  poligonos.forEach((p) => {
-    // match por clave (parte 1 si existe, si no parte 0)
-    const dato = datosSheets.find((d) => clave(d.id) === clave(p.id));
+          const colorInicial = obtenerColor(p.fecha, p.finalizado);
+          if (contadores[colorInicial] != null) contadores[colorInicial]++;
 
-    p.fecha = dato ? dato.fecha : null;
-    p.finalizado = dato ? dato.finalizado : "";
+          const poly = L.polygon(p.coords, {
+            color: "black",
+            fillColor: colorInicial,
+            fillOpacity: 0.5,
+          }).addTo(map);
 
-    const colorInicial = obtenerColor(p.fecha, p.finalizado);
-    if (contadores[colorInicial] != null) contadores[colorInicial]++;
+          const tooltipContent = `
+          <div class="tooltip-content">
+            <div><strong>${p.id}</strong></div>
+          </div>
+        `;
+          poly.bindTooltip(tooltipContent, {
+            permanent: true,
+            direction: "center",
+            className: "label",
+          });
 
-    const poly = L.polygon(p.coords, {
-      color: "black",
-      fillColor: colorInicial,
-      fillOpacity: 0.5,
-    }).addTo(map);
+          poly.on("click", function () {
+            abrirForm(p);
+            /*infoPanel.style.display = "block";
+            polygonId.textContent = p.id;
+            polygonFecha.textContent =
+              (p.fecha instanceof Date && !isNaN(p.fecha))
+                ? p.fecha.toLocaleDateString()
+                : "No hay datos";*/
 
-    const tooltipContent = `
-      <div class="tooltip-content">
-        <div><strong>${p.id}</strong></div>
-      </div>
-    `;
-    poly.bindTooltip(tooltipContent, {
-      permanent: true,
-      direction: "center",
-      className: "label",
-    });
+          });
+        });
 
-    poly.on("click", function () {
-      abrirForm(p);
-      // infoPanel.style.display = "block";
-      // polygonId.textContent = p.id;
-      // polygonFecha.textContent =
-      //   (p.fecha instanceof Date && !isNaN(p.fecha))
-      //     ? p.fecha.toLocaleDateString()
-      //     : "No hay datos";
-    });
-  });
-
-  actualizarContadores();
-}
-
+        actualizarContadores();
+      }
 
       function repintarContadores(){
         const ids = { blue:'contador-azul', green:'contador-verde', yellow:'contador-amarillo', red:'contador-rojo' };
@@ -8732,7 +8799,7 @@
     if(!regs.length){ showToast('No se pudo leer la planilla'); return; }
     dataById.clear();
     for(const r of regs){
-      const fid = firstPartId(r.id);
+      const fid = idKey(r.id);
       if(!fid) continue;
       const prev = dataById.get(fid);
       const dt = parseFecha(r.fecha) || new Date(0);
@@ -8740,7 +8807,7 @@
       if(!prev || dt >= prevDt) dataById.set(fid, r);
     }
     for(const p of poligonos){
-      const rec = dataById.get(firstPartId(p.id));
+      const rec = dataById.get(idKey(p.id));
       if(!rec) continue;
       p.capitan = rec.capitan || p.capitan || '';
       p.territorio = rec.territorio || p.territorio || p.id;
@@ -8905,6 +8972,28 @@
       }
     }
   }
+
+/*async function enviarAlSheet(rec){
+  //if (!AUTH.isLoggedIn()) return { ok:false, reason:'No autenticado' };
+  try{
+    const body = new URLSearchParams();
+    body.set('action', 'save');
+//    body.set('token', AUTH.token);
+    body.set('rec', JSON.stringify(rec));
+
+    const r = await fetch(WEBHOOK_URL, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/x-www-form-urlencoded;charset=utf-8' },
+      body
+    });
+    const data = await r.json().catch(()=>({}));
+    if (r.ok && data.ok) return { ok:true, via:'POST' };
+    throw new Error(data.error || ('HTTP '+r.status));
+  }catch(e){
+    return { ok:false, reason:String(e) };
+  }
+}*/
+
       /*************** RANKING (SIN HACER, MÁS ANTIGUOS) ***************/
       async function mostrarRanking() {
         try {
@@ -8994,16 +9083,47 @@
   <div id="territorio-modal" role="dialog" aria-modal="true" style="width:min(440px,92vw);background:#fff;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.35);overflow:hidden;font-family:system-ui,Segoe UI,Roboto,Arial">
     <header style="background:#111827;color:#fff;padding:10px 12px;display:flex;justify-content:space-between;align-items:center">
       <h3 id="territorio-title" style="margin:0;font-size:14px">Registrar territorio</h3>
-      <button type="button" id="territorio-close" class="btn btn-cancelar" style="border:none;border-radius:8px;padding:6px 10px;font-weight:700;cursor:pointer;background:#e5e7eb;color:#111">Cerrar</button>
+      <!--button type="button" id="territorio-close" class="btn btn-cancelar" style="border:none;border-radius:8px;padding:6px 10px;font-weight:700;cursor:pointer;background:#e5e7eb;color:#111">Cerrar</button-->
     </header>
     <div id="territorio-body" class="content" style="padding:12px;font-size:14px"></div>
   </div>
 </div>
 <div id="territorio-toast" style="position:fixed;left:12px;bottom:12px;background:rgba(255,255,255,.95);padding:6px 10px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.15);font-size:12px;display:none;z-index:10001"></div>
 <button id="btn-actualizar-sheet" title="Leer planilla y repintar" style="position:fixed;right:12px;top:12px;z-index:1200;background:#2563eb;color:#fff;border:none;padding:8px 10px;border-radius:8px;font-weight:700;cursor:pointer;visibility:hidden;">Actualizar</button>
-
+<div id="login-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100000;align-items:center;justify-content:center">
+  <div style="width:min(420px,92vw);background:#fff;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.35);overflow:hidden;font-family:system-ui,Segoe UI,Roboto,Arial">
+    <header style="background:#111827;color:#fff;padding:10px 12px">
+      <h3 style="margin:0;font-size:14px">Iniciar sesión</h3>
+    </header>
+    <div style="padding:12px">
+      <label style="display:block;margin:6px 0 4px">Usuario</label>
+      <input id="login-user" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px"/>
+      <label style="display:block;margin:10px 0 4px">Contraseña</label>
+      <input id="login-pass" type="password" style="width:100%;padding:8px;border:1px solid #d1d5db;border-radius:8px"/>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button id="login-cancel" style="border:none;border-radius:8px;padding:8px 12px;background:#e5e7eb;cursor:pointer">Cancelar</button>
+        <button id="login-ok" style="border:none;border-radius:8px;padding:8px 12px;background:#2563eb;color:#fff;cursor:pointer">Entrar</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
+  function openLoginModal(onSubmit){
+    const ov = document.getElementById('login-overlay');
+    const user = document.getElementById('login-user');
+    const pass = document.getElementById('login-pass');
+    const ok   = document.getElementById('login-ok');
+    const cc   = document.getElementById('login-cancel');
+    ov.style.display = 'flex';
+    user.value = ''; pass.value = ''; user.focus();
+
+    const close = ()=> { ov.style.display = 'none'; ok.onclick = cc.onclick = null; };
+    cc.onclick = close;
+    ok.onclick = ()=> onSubmit({ usuario: user.value, password: pass.value, close });
+    ov.addEventListener('click', (e)=>{ if(e.target===ov) close(); }, { once:true });
+  }
+
 (function(){
   // ====== CONFIG ======
   const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbweVDu_2Vn0ygEMQdkgqbVprTKJ2kjAT--Wimo0cVTaASLK3-yJMkt175DJq-pky1Y/exec";
@@ -9018,8 +9138,45 @@
   let contadores = { blue:0, green:0, yellow:0, red:0 };
 
   // ====== Helpers ======
+function normalizarId(x) {
+  let s = String(x ?? "")
+    .normalize("NFKC")
+    // quita espacios invisibles (ZWSP, etc.)
+    .replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, "")
+    // convierte todos los espacios unicode a espacio común y colapsa
+    .replace(/[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!s) return "";
+
+  // si querés mantener ceros a la izquierda, cambiá por: const stripZeros = v => v;
+  const stripZeros = (v) => v.replace(/^0+/, "") || "0";
+
+  // 1) Solo dígitos
+  if (/^\d+$/.test(s)) return stripZeros(s);
+
+  // 2) Prioridad: últimos dígitos al final del string (cubre "705|6 301" → "301", "12|34" → "34")
+  let m = s.match(/(\d+)\s*$/);
+  if (m) return stripZeros(m[1]);
+
+  // 3) Caso "AA|BB" (sin números al final) → dígitos a la derecha de la última barra
+  if (s.includes("|")) {
+    const right = s.split("|").pop();
+    m = right.match(/(\d+)(?!.*\d)/);
+    if (m) return stripZeros(m[1]);
+  }
+
+  // 4) Fallback: último grupo numérico donde sea
+  const all = s.match(/\d+/g);
+  if (all && all.length) return stripZeros(all[all.length - 1]);
+
+  return s; // sin números, devolvemos original
+}
+
+
   const $ = (sel)=> document.querySelector(sel);
-  function firstPartId(x){ return String(x ?? "").split("|")[0].trim(); }
+  function idKey(x){ return String(x ?? "").split("|")[0].trim(); }
   function parseFecha(s){
     if(!s) return null;
     const t = String(s).trim();
