@@ -8897,7 +8897,7 @@ window.cargarLineasDesdeJSON('lineas.geojson');
               (p.fecha instanceof Date && !isNaN(p.fecha))
                 ? p.fecha.toLocaleDateString()
                 : "No hay datos";
-        const titulo = `Registrar territorio ${p.territorio || p.id} - Última visita: ${textContent}`;
+        const titulo = `Registrar territorio ${p.territorio || p.id}`;
         showModal(formHTML(p.id, { capitan:p.capitan||'', estado:p.finalizado||'Si', fechaValida:p.fecha||new Date(), comentario:p.comentario||'' }), titulo);
         document.getElementById(`cancel-${p.id}`).onclick = hideModal;
         document.getElementById(`save-${p.id}`).onclick = async () => {
