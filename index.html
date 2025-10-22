@@ -156,12 +156,23 @@ window.idKey = window.idKey || function idKey(x){ return window.normalizarId(x);
       .amarillo {
         background: yellow;
       }
-      .rojo {
-        background: red;
+      .naranja {
+        background: #FFA500;
       }
-
-      .bordo {
-        background: rgb(114, 3, 3);
+      .darkorange {
+        background: #FF8C00;
+      }
+      .rojo {
+        background: #ff0000;
+      }
+      .maroon {
+        background: #720303;
+      }
+      .peru {
+        background: #2b0101;
+      }
+      .black {
+        background: #160000;
       }
 
       #ranking-container h3 {
@@ -261,6 +272,19 @@ window.idKey = window.idKey || function idKey(x){ return window.normalizarId(x);
           animation: scaleDown 200ms ease-in-out;
         }
       }
+
+    html, body { height: 100%; margin: 0; }
+    #map { height: 100%; }
+    .numero-cartel {
+      color: white;
+      font-size: 24px;
+      font-weight: bold;
+      background-color: rgba(0, 0, 0, 0.4); /* fondo semitransparente */
+      padding: 4px 8px;
+      border-radius: 8px;
+      pointer-events: none; /* ❌ sin interacción */
+      user-select: none;
+    }
     </style>
   </head>
   <body>
@@ -268,8 +292,8 @@ window.idKey = window.idKey || function idKey(x){ return window.normalizarId(x);
 
     <div id="info-panel">
       <p><strong>Territorio:</strong> <span id="polygon-id"></span></p>
+      <p><strong>Última visita:</strong> <span id="polygon-fecha"></span></p>
     </div>
-
     <div id="referencias">
       <h3 style="margin-top: 0">Referencias</h3>
       <div class="referencias">
@@ -286,12 +310,28 @@ window.idKey = window.idKey || function idKey(x){ return window.normalizarId(x);
           <span>Se realizó 2 veces</span>
         </div>
         <div class="referencia">
-          <div class="color-box rojo"></div>
+          <div class="color-box naranja"></div>
           <span>Se realizó 3 veces</span>
         </div>
         <div class="referencia">
-          <div class="color-box bordo"></div>
-          <span>Se realizó más de 3 veces</span>
+          <div class="color-box darkorange"></div>
+          <span>Se realizó 4 veces</span>
+        </div>
+        <div class="referencia">
+          <div class="color-box rojo"></div>
+          <span>Se realizó 5 veces</span>
+        </div>
+        <div class="referencia">
+          <div class="color-box maroon"></div>
+          <span>Se realizó 6 veces</span>
+        </div>
+        <div class="referencia">
+          <div class="color-box peru"></div>
+          <span>Se realizó 7 veces</span>
+        </div>
+        <div class="referencia">
+          <div class="color-box black"></div>
+          <span>Se realizó 8 veces o más</span>
         </div>
       </div>
     </div>
@@ -321,7 +361,206 @@ window.idKey = window.idKey || function idKey(x){ return window.normalizarId(x);
         attribution: "&copy; OpenStreetMap contributors",
       }).addTo(map);
 
-      
+      // Coordenadas del cartel
+    const coords = [-34.81336542548195, -55.94933026500102];
+    const coords2 = [-34.811286582180394, -55.94544642620604];
+    const coords3 = [-34.81657188632685, -55.942062667848774];
+    const coords4= [-34.82223477650662, -55.94038877194424];
+    const coords5 = [-34.81527508555718, -55.93809954150837];
+    const coords6 = [-34.82008935931963, -55.93356006777914];
+    const coords7 = [-34.81338539561594, -55.932902226529094];
+    const coords8 = [-34.81728165653415, -55.93010626853567];
+    const coords9 = [-34.81119372960812, -55.92738340680523];
+    const coords10 = [-34.8153728400786, -55.92574621955909];
+    const coords11 = [-34.80692886323752, -55.923469040934265];
+    const coords12 = [-34.81235461487246, -55.920060714757625];
+    const coords13 = [-34.80905521388421, -55.916027280722815];
+    const coords14 = [-34.80399990239286, -55.916780479198835];
+    const coords15 = [-34.79955924683334, -55.91118856321308];
+    const coords16 = [-34.80960324530219, -55.91052636263731];
+    const coords17 = [-34.80643158858064, -55.90936751162679];
+    const coords18 = [-34.808515833887576, -55.90841099968181];
+    const coords19 = [-34.80153793586342, -55.905798986293206];
+    const coords20= [-34.80700551639037, -55.904529768519666];
+    const coords21 = [-34.80517799529366, -55.90668192039635];
+    const coords22 = [-34.80594544468801, -55.902789651058846];
+
+    // Crear icono como div
+    const numeroIcon = L.divIcon({
+      className: "numero-cartel",
+      html: "&nbsp;1",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords, { icon: numeroIcon, interactive: false }).addTo(map);
+    
+    const numeroIcon2 = L.divIcon({
+      className: "numero-cartel",
+      html: "&nbsp;2",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords2, { icon: numeroIcon2, interactive: false }).addTo(map);
+
+    const numeroIcon3 = L.divIcon({
+      className: "numero-cartel",
+      html: "&nbsp;3",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords3, { icon: numeroIcon3, interactive: false }).addTo(map);
+    
+        const numeroIcon4 = L.divIcon({
+      className: "numero-cartel",
+      html: "&nbsp;4",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords4, { icon: numeroIcon4, interactive: false }).addTo(map);
+    
+    const numeroIcon5 = L.divIcon({
+      className: "numero-cartel",
+      html: "&nbsp;5",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords5, { icon: numeroIcon5, interactive: false }).addTo(map);
+
+    const numeroIcon6 = L.divIcon({
+      className: "numero-cartel",
+      html: "&nbsp;6",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords6, { icon: numeroIcon6, interactive: false }).addTo(map);
+
+    const numeroIcon7 = L.divIcon({
+      className: "numero-cartel",
+      html: "&nbsp;7",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords7, { icon: numeroIcon7, interactive: false }).addTo(map);
+    
+    const numeroIcon8 = L.divIcon({
+      className: "numero-cartel",
+      html: "&nbsp;8",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords8, { icon: numeroIcon8, interactive: false }).addTo(map);
+
+    const numeroIcon9 = L.divIcon({
+      className: "numero-cartel",
+      html: "&nbsp;9",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords9, { icon: numeroIcon9, interactive: false }).addTo(map);
+
+        const numeroIcon10 = L.divIcon({
+      className: "numero-cartel",
+      html: "10",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords10, { icon: numeroIcon10, interactive: false }).addTo(map);
+    
+    const numeroIcon11 = L.divIcon({
+      className: "numero-cartel",
+      html: "11",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords11, { icon: numeroIcon11, interactive: false }).addTo(map);
+
+    const numeroIcon12 = L.divIcon({
+      className: "numero-cartel",
+      html: "12",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords12, { icon: numeroIcon12, interactive: false }).addTo(map);
+
+        const numeroIcon13 = L.divIcon({
+      className: "numero-cartel",
+      html: "13",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords13, { icon: numeroIcon13, interactive: false }).addTo(map);
+    
+    const numeroIcon14 = L.divIcon({
+      className: "numero-cartel",
+      html: "14",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords14, { icon: numeroIcon14, interactive: false }).addTo(map);
+
+    const numeroIcon15 = L.divIcon({
+      className: "numero-cartel",
+      html: "15",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords15, { icon: numeroIcon15, interactive: false }).addTo(map);
+
+    const numeroIcon16 = L.divIcon({
+      className: "numero-cartel",
+      html: "16",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords16, { icon: numeroIcon16, interactive: false }).addTo(map);
+    
+    const numeroIcon17 = L.divIcon({
+      className: "numero-cartel",
+      html: "17",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords17, { icon: numeroIcon17, interactive: false }).addTo(map);
+
+    const numeroIcon18 = L.divIcon({
+      className: "numero-cartel",
+      html: "18",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords18, { icon: numeroIcon18, interactive: false }).addTo(map);
+
+        const numeroIcon19 = L.divIcon({
+      className: "numero-cartel",
+      html: "19",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords19, { icon: numeroIcon19, interactive: false }).addTo(map);
+    
+    const numeroIcon20 = L.divIcon({
+      className: "numero-cartel",
+      html: "20",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords20, { icon: numeroIcon20, interactive: false }).addTo(map);
+
+    const numeroIcon21 = L.divIcon({
+      className: "numero-cartel",
+      html: "21",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords21, { icon: numeroIcon21, interactive: false }).addTo(map);
+
+    const numeroIcon22 = L.divIcon({
+      className: "numero-cartel",
+      html: "22",              // 👉 Número que quieras mostrar
+      iconSize: [35, 35],      // Tamaño del div
+      iconAnchor: [15, 15],    // Ancla centrada
+    });
+    L.marker(coords22, { icon: numeroIcon22, interactive: false }).addTo(map);
 
 // ======== LÍNEAS EN EL MAPA (Leaflet) ========
 // Capa contenedora (si ya existe, reutiliza)
@@ -8576,11 +8815,18 @@ window.cargarLineasDesdeJSON('lineas.geojson');
           ["si","sí","true","1","ok","finalizado","completo","terminado"].includes(fin) || finalizado === true;
         console.log(cantidad + " - " + finalizado)
         if (cantidad === 0 && !esSi) return "gray";
+        //gray
         if (cantidad === 1 && !esSi) return "blue";
+        //blue
         if (cantidad === 1 &&  esSi) return "green";
+        
         if (cantidad === 2) return "yellow";
-        if (cantidad === 3) return "red";
-        if (cantidad > 3) return "bordo";
+        if (cantidad === 3) return "orange";
+        if (cantidad === 4) return "darkorange";
+        if (cantidad === 5) return "red";
+        if (cantidad === 6) return "maroon";
+        if (cantidad === 7) return "peru";
+        if (cantidad >= 8) return "black";
         return "gray";
       }
       function actualizarContadores() {
@@ -8832,10 +9078,16 @@ window.cargarLineasDesdeJSON('lineas.geojson');
       if(key==='blue')   return { ...base, fillColor:'#3388ff' };
       if(key==='green')  return { ...base, fillColor:'#2e7d32' };
       if(key==='yellow') return { ...base, fillColor:'#ffd500' };
-      if(key==='red')    return { ...base, fillColor:'#b53a22' };
+      if(key==='orange') return { ...base, fillColor:'#ffd500' };
+      if(key==='redorange') return { ...base, fillColor:'#ff4500' };
+      if(key==='red')    return { ...base, fillColor:'#ff0000' };
+      if(key==='bordo')    return { ...base, fillColor:'#720303' };
+      if(key==='bordooscuro')    return { ...base, fillColor:'#2b0101' };
+      if(key==='muyoscuro')    return { ...base, fillColor:'#160000' };
       if(key==='gray')   return { ...base, fillColor:'#9e9e9e' }; // ← NUEVO
       return { ...base, fillColor:'#90caf9' };
     }
+
       /*************** CARGA DEL MAPA ***************/
       async function cargarMapa() {
         const datosSheets = await cargarDatosDesdeSheets();
@@ -8897,7 +9149,7 @@ window.cargarLineasDesdeJSON('lineas.geojson');
               (p.fecha instanceof Date && !isNaN(p.fecha))
                 ? p.fecha.toLocaleDateString()
                 : "No hay datos";
-        const titulo = `Registrar territorio ${p.territorio || p.id}`;
+        const titulo = `Registrar territorio ${p.territorio || p.id} - Última visita: ${textContent}`;
         showModal(formHTML(p.id, { capitan:p.capitan||'', estado:p.finalizado||'Si', fechaValida:p.fecha||new Date(), comentario:p.comentario||'' }), titulo);
         document.getElementById(`cancel-${p.id}`).onclick = hideModal;
         document.getElementById(`save-${p.id}`).onclick = async () => {
@@ -9036,12 +9288,7 @@ window.cargarLineasDesdeJSON('lineas.geojson');
     return m;
   }
   function colorKeyPorFechaEstado(p){
-    const fechaValida = p.fecha instanceof Date && !isNaN(p.fecha);
-    if(!fechaValida) return 'gray'; // sin datos -> gris
-    const diffMeses = diferenciaEnMeses(p.fecha, new Date());
-    if(diffMeses < 2) return p.finalizado === 'Si' ? 'green' : 'blue';
-    if(diffMeses <= 3) return 'yellow';
-    return 'red';
+    return 'gray';
   }
 
   async function leerPlanilla(){
