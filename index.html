@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Vistas Territorios – Coloreado por Veces (v4)</title>
+  <title>Territorios Lomas</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -289,9 +289,8 @@
     function obtenerColor(cantidad, finalizado) {
       const fin = String(finalizado ?? "").trim().toLowerCase();
       const esSi = ["si","sí","true","1","ok","finalizado","completo","terminado"].includes(fin) || finalizado === true;
-      if (cantidad === 0 && !esSi) return "gray";
-      if (cantidad === 1 && !esSi) return "blue";
-      if (cantidad === 1 &&  esSi) return "green";
+      if (cantidad === 0) return "gray";
+      if (cantidad === 1) return "green";
       if (cantidad === 2) return "yellow";
       if (cantidad === 3) return "orange";
       if (cantidad === 4) return "darkorange";
