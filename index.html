@@ -1,6 +1,174 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+
+<style>
+  /* ===== Desktop login styling & global form fixes ===== */
+  /* Backdrop */
+  #login-overlay{
+    position: fixed;
+    inset: 0;
+    z-index: 4000;
+    background: rgba(0,0,0,.55);
+    display: none; /* toggled via JS */
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    backdrop-filter: blur(1.5px);
+  }
+  /* Modal container */
+  #login-modal{
+    background: #0f172a;           /* slate-900 */
+    color: #e5e7eb;                /* gray-200 */
+    width: 100%;
+    max-width: 480px;
+    border-radius: 14px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.35);
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.06);
+  }
+  /* Header / Body */
+  #login-modal header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    background: linear-gradient(180deg, rgba(255,255,255,.04), transparent);
+  }
+  #login-modal header h3{
+    margin:0; font: 600 16px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    letter-spacing: .2px;
+  }
+  #login-modal .modal-body{
+    padding: 16px;
+    display: grid;
+    gap: 10px;
+  }
+  #login-modal .form-field{ display:grid; gap:6px; }
+  #login-modal .form-label{ font-size: 13px; color: #cbd5e1; } /* slate-300 */
+  #login-modal .form-input{
+    width:100%;
+    border: 1px solid #334155;     /* slate-700 */
+    background: #0b1220;           /* deep slate */
+    color: #e5e7eb;
+    border-radius: 10px;
+    padding: 10px 12px;
+    outline: none;
+  }
+  #login-modal .form-input:focus{
+    border-color: #60a5fa;         /* blue-400 */
+    box-shadow: 0 0 0 3px rgba(96,165,250,.2);
+  }
+  #login-modal .form-actions{
+    display:flex; gap:8px; justify-content:flex-end; margin-top:8px;
+  }
+  #login-modal .btn-primary{
+    background:#2563eb; color:#fff; border:none; border-radius:10px; padding:10px 14px; cursor:pointer;
+  }
+  #login-modal .btn-cancel{
+    background:#1f2937; color:#e5e7eb; border:1px solid #334155; border-radius:10px; padding:10px 14px; cursor:pointer;
+  }
+  #login-modal .btn-primary:hover{ filter:brightness(1.06); }
+  #login-modal .btn-cancel:hover{ filter:brightness(1.05); }
+
+  /* Close button (if exists) */
+  #login-modal .modal-close-btn{
+    border:none; background:transparent; color:#94a3b8;
+    font-size:18px; cursor:pointer; line-height:1;
+  }
+  #login-modal .modal-close-btn:hover{ color:#e2e8f0; }
+
+  /* Leaflet controls sit below auth bar & modal */
+  .leaflet-top, .leaflet-bottom{ z-index: 2000; }
+  /* Floating refs button must be above Leaflet controls but below modal */
+  .refs-toggle{ z-index: 2500; }
+
+  /* ---- General form tidy for the registro modal to avoid clashing ---- */
+  .modal-card input, .modal-card select, .modal-card textarea,
+  #territorio-overlay input, #territorio-overlay select, #territorio-overlay textarea{
+    font: 500 14px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    border-radius: 10px;
+    border: 1px solid #334155;
+    background: #0b1220;
+    color: #e5e7eb;
+    padding: 10px 12px;
+    outline: none;
+  }
+  #territorio-overlay label{ color:#cbd5e1; font-size: 13px; }
+  #territorio-overlay footer button{
+    border-radius: 10px; padding:10px 14px;
+  }
+  #territorio-overlay footer .btn{ background:#2563eb; color:#fff; border:none; }
+  #territorio-overlay footer .btn.secondary{ background:#1f2937; color:#e5e7eb; border:1px solid #334155; }
+
+  /* Desktop layout polish for modal widths */
+  @media (min-width: 769px){
+    #login-modal{ max-width: 520px; }
+  }
+</style>
+
+
+
+<style>
+  /* Botón flotante "Referencias" (aparece en pantallas pequeñas) */
+  .refs-toggle{
+    position:fixed;
+    right:14px;
+    bottom:14px;
+    z-index:2500;
+    display:none; /* visible sólo en mobile via @media */
+    padding:10px 14px;
+    border:none;
+    border-radius:999px;
+    background:#111;
+    color:#fff;
+    font:600 14px/1 system-ui,-apple-system,Segoe UI,Roboto,Arial;
+    box-shadow:0 6px 20px rgba(0,0,0,.25);
+    cursor:pointer;
+  }
+  .refs-toggle:active{ transform:translateY(1px); }
+
+  /* Panel con animación de deslizado */
+  #referencias{
+    will-change: max-height, opacity;
+    transition: max-height 250ms ease, opacity 200ms ease;
+  }
+
+  /* Sólo en mobile mostramos el botón y colapsamos por defecto */
+  @media (max-width: 768px){
+    .refs-toggle{ display:inline-flex; align-items:center; gap:8px; }
+  }
+</style>
+
+
+
+<!-- Auth + Config -->
+<script src="./app-config.js"></script>
+<script src="./app-auth.js"></script>
+
+<style>
+  /* ===== Login modal minimal styles (compatible con index.slim2.html) ===== */
+  .auth-hidden{ display:none !important; }
+  .overlay{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.45); z-index:3000; }
+  .modal-card{ width:92%; max-width:420px; background:#fff; color:#111; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.25); overflow:hidden; }
+  .modal-header{ display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-bottom:1px solid #eee; }
+  .modal-title{ margin:0; font:600 16px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+  .modal-close-btn{ border:none; background:transparent; font-size:18px; cursor:pointer; }
+  .modal-body{ padding:14px; display:grid; gap:10px; }
+  .form-field{ display:grid; gap:4px; }
+  .form-label{ font-size:14px; }
+  .form-input{ width:100%; border:1px solid #ccc; border-radius:8px; padding:8px 10px; font-size:14px; }
+  .form-actions{ display:flex; gap:8px; justify-content:flex-end; margin-top:6px; }
+  .btn-primary{ background:#111; color:#fff; border:none; padding:8px 12px; border-radius:8px; cursor:pointer; }
+  .btn-cancel{ background:#e5e7eb; color:#111; border:none; padding:8px 12px; border-radius:8px; cursor:pointer; }
+  /* Barra simple arriba a la derecha */
+  #auth-bar{ position:fixed; right:10px; top:10px; z-index:3100; display:flex; gap:8px; align-items:center; }
+  #auth-bar .pill{ background:rgba(0,0,0,.75); color:#fff; padding:6px 10px; border-radius:999px; font:500 13px/1 system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+  #btnAuthOpen, #btnLogout{ border:none; border-radius:8px; padding:6px 10px; cursor:pointer; }
+  #btnAuthOpen{ background:#2563eb; color:#fff; }
+  #btnLogout{ background:#ef4444; color:#fff; }
+</style>
+
+
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Territorios Lomas</title>
@@ -91,7 +259,24 @@
     .btn.secondary { background:#e0e0e0; color:#111; }
   </style>
 </head>
+
+
 <body>
+
+<!-- Botón flotante para mostrar/ocultar referencias en mobile -->
+<button id="btnReferencias" class="refs-toggle" aria-controls="referencias" aria-expanded="false" type="button">
+  Referencias
+</button>
+
+
+
+<div id="auth-bar">
+  <span id="auth-info" class="pill auth-hidden"></span>
+  <button id="btnAuthOpen" type="button">Acceder</button>
+  <button id="btnLogout" class="auth-hidden" type="button">Salir</button>
+</div>
+
+
   <div id="map"></div>
 
   <div id="referencias">
@@ -124,8 +309,7 @@
       </div>
       <div class="row">
         <label for="campoCapitan">Capitán</label>
-        <input id="campoCapitan" type="text" list="listaCapitanes" placeholder="Nombre del capitán"/>
-        <datalist id="listaCapitanes"></datalist>
+        <input id="campoCapitan" type="text" readonly />
       </div>
       <div class="row">
         <label for="campoFecha">Fecha</label>
@@ -345,10 +529,9 @@
     const $campoNotas = document.getElementById('campoNotas');
     const $btnCancelar = document.getElementById('btnCancelar');
     const $btnGuardar = document.getElementById('btnGuardar');
-    function abrirModal(terr, polyId) {
-      $campoTerritorio.value = terr;
+    function abrirModal(terr, polyId) {$campoTerritorio.value = terr;
       $campoPoligono.value   = polyId;
-      $campoCapitan.value    = '';
+      $campoCapitan.value    = (window.AuthApp && AuthApp.getUsername && AuthApp.getUsername()) || '';
       $campoFecha.value      = new Date().toISOString().slice(0,10);
       $campoEstado.value     = 'Si';
       $campoNotas.value      = '';
@@ -441,7 +624,7 @@ async function init() {
     for (const p of listaAll) {
       const hex = getFillHexFromDatos(p.id, p.territorio);
       const poly = L.polygon(p.coords, { color:'#000', weight:1, fillColor:hex, fillOpacity:0.5 }).addTo(polygonsLayer);
-      poly.on('click', () => abrirModal(p.territorio, p.id));
+      poly.on('click', () => abrirModalSiLogueado(p.territorio, p.id));
       const labelPt = centroidArea(p.coords) || centroide(p.coords) || poly.getBounds().getCenter();
       const icon = L.divIcon({ className:'numero-cartel', html:String(p.id), iconSize: null, iconAnchor: [0,0] });
       L.marker(labelPt, { icon, interactive:false, zIndexOffset: 1000 }).addTo(labelsLayer);
@@ -455,7 +638,7 @@ async function init() {
       for (const p of lista) {
         const hex = getFillHexFromDatos(p.id, terr);
         const poly = L.polygon(p.coords, { color:'#000', weight:1, fillColor:hex, fillOpacity:0.5 }).addTo(polygonsLayer);
-        poly.on('click', () => abrirModal(terr, p.id));
+        poly.on('click', () => abrirModalSiLogueado(terr, p.id));
         // Label: centroide por área -> centroide geom. -> bounds center
         const labelPt = centroidArea(p.coords) || centroide(p.coords) || poly.getBounds().getCenter();
         const icon = L.divIcon({ className:'numero-cartel', html:String(p.id), iconSize: null, iconAnchor: [0,0] });
@@ -541,6 +724,196 @@ init();
       });
     }
   </script>
+
+
+<!-- ===== LOGIN MODAL (idéntico a index.slim2.html en estructura/IDs) ===== -->
+<div id="login-overlay" class="overlay">
+  <div id="login-modal" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <header class="modal-header">
+      <h3 id="login-title" class="modal-title">Iniciar sesión</h3>
+      <button id="login-close" class="modal-close-btn" title="Cerrar">✕</button>
+    </header>
+    <div class="modal-body">
+      <div class="form-field">
+        <label for="inUser" class="form-label">Usuario</label>
+        <input id="inUser" class="form-input" autocomplete="username" />
+      </div>
+      <div class="form-field">
+        <label for="inPass" class="form-label">Contraseña</label>
+        <input id="inPass" class="form-input" type="password" autocomplete="current-password" />
+      </div>
+      <div class="form-actions">
+        <button id="login-cancel" class="btn-cancel" type="button">Cancelar</button>
+        <button id="btnLogin" class="btn-primary" type="button">Ingresar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script>
+// ===== Toast fallback (si no existe) =====
+window.showToast = window.showToast || function(msg){
+  if (!msg) return;
+  try { console.log("[toast]", msg); } catch(_){}
+};
+
+// ====== DOM refs ======
+const btnAuthOpen    = document.getElementById('btnAuthOpen');
+const btnLogout      = document.getElementById('btnLogout');
+const overlayLogin   = document.getElementById('login-overlay');
+const btnLogin       = document.getElementById('btnLogin');
+const inUser         = document.getElementById('inUser');
+const inPass         = document.getElementById('inPass');
+const btnCloseLogin  = document.getElementById('login-close');
+const btnCancelLogin = document.getElementById('login-cancel');
+
+function openLogin(){
+  overlayLogin.style.display='flex';
+  inUser && inUser.focus();
+}
+function closeLogin(){
+  overlayLogin.style.display='none';
+}
+
+btnAuthOpen && btnAuthOpen.addEventListener('click', openLogin);
+btnCloseLogin && btnCloseLogin.addEventListener('click', closeLogin);
+btnCancelLogin && btnCancelLogin.addEventListener('click', closeLogin);
+
+btnLogin && btnLogin.addEventListener('click', () => {
+  const u = (inUser.value||'').trim();
+  const p = (inPass.value||'').trim();
+  if (!u || !p){
+    window.showToast && window.showToast('Ingresá usuario y contraseña');
+    return;
+  }
+  if (window.AuthApp && typeof window.AuthApp.doLogin === "function"){
+    window.AuthApp.doLogin(u,p);
+  } else {
+    window.showToast && window.showToast('AuthApp no está disponible');
+  }
+  closeLogin();
+});
+
+btnLogout && btnLogout.addEventListener('click', () => {
+  if (window.AuthApp && typeof window.AuthApp.logout === "function"){
+    window.AuthApp.logout();
+  }
+});
+
+// Restaurar sesión al cargar
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.AuthApp && typeof window.AuthApp.restore === "function"){
+    window.AuthApp.restore();
+  }
+});
+</script>
+
+<script>
+// === Gate de registro: sólo mostrar modal si hay sesión ===
+function __isLogged(){
+  try{
+    return !!(window.AuthApp && typeof AuthApp.isLogged === "function" && AuthApp.isLogged());
+  }catch(_){ return false; }
+}
+function __openLoginIfNeeded(){
+  try{
+    const overlay = document.getElementById('login-overlay');
+    if (overlay){ overlay.style.display = 'flex'; }
+  }catch(_){}
+}
+function abrirModalSiLogueado(terr, polyId){
+  if (!__isLogged()){
+    (window.showToast||console.log)("Necesitás iniciar sesión para registrar territorios");
+    __openLoginIfNeeded();
+    return;
+  }
+  if (typeof abrirModal === "function"){
+    abrirModal(terr, polyId);
+  }
+}
+</script>
+
+
+<script>
+(function(){
+  function setupReferenciasToggle(){
+    var btn = document.getElementById('btnReferencias');
+    var panel = document.getElementById('referencias');
+    if (!btn || !panel) return;
+
+    var mq = window.matchMedia('(max-width: 768px)');
+
+    function collapse(){
+      panel.style.overflow = 'hidden';
+      panel.style.maxHeight = '0px';
+      panel.style.opacity = '0';
+      panel.dataset.collapsed = 'true';
+      btn.setAttribute('aria-expanded','false');
+    }
+    function expand(){
+      panel.style.overflow = 'hidden';
+      panel.style.display = 'block';
+      // Medimos el contenido y aplicamos altura
+      var h = panel.scrollHeight;
+      panel.style.maxHeight = h + 'px';
+      panel.style.opacity = '1';
+      panel.dataset.collapsed = 'false';
+      btn.setAttribute('aria-expanded','true');
+    }
+    function resetDesktop(){
+      panel.style.removeProperty('overflow');
+      panel.style.removeProperty('max-height');
+      panel.style.removeProperty('opacity');
+      delete panel.dataset.collapsed;
+      btn.setAttribute('aria-expanded','true');
+    }
+    function applyByViewport(){
+      if (mq.matches){
+        collapse();
+        btn.style.display = 'inline-flex';
+      } else {
+        resetDesktop();
+        btn.style.display = 'none';
+      }
+    }
+    applyByViewport();
+    mq.addEventListener('change', applyByViewport);
+
+    btn.addEventListener('click', function(){
+      if (panel.dataset.collapsed === 'true'){
+        expand();
+      } else {
+        collapse();
+      }
+    });
+
+    // Mantener altura correcta si cambia el viewport o el contenido
+    window.addEventListener('resize', function(){
+      if (panel.dataset.collapsed === 'false'){
+        panel.style.maxHeight = panel.scrollHeight + 'px';
+      }
+    });
+  }
+
+  if (document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', setupReferenciasToggle);
+  } else {
+    setupReferenciasToggle();
+  }
+})();
+</script>
+
+
+<script>
+(function(){
+  var ov = document.getElementById('login-overlay');
+  var closeBtn = document.getElementById('login-close');
+  var cancelBtn = document.getElementById('login-cancel');
+  if (ov && closeBtn){ closeBtn.addEventListener('click', function(){ ov.style.display='none'; }); }
+  if (ov && cancelBtn){ cancelBtn.addEventListener('click', function(){ ov.style.display='none'; }); }
+})();
+</script>
 
 </body>
 </html>
