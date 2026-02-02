@@ -166,6 +166,26 @@
   #btnAuthOpen, #btnLogout{ border:none; border-radius:8px; padding:6px 10px; cursor:pointer; }
   #btnAuthOpen{ background:#2563eb; color:#fff; }
   #btnLogout{ background:#ef4444; color:#fff; }
+  #btnRefresh{
+    background:rgba(0,0,0,.75);
+    color:#fff;
+    border:none;
+    border-radius:8px;
+    padding:6px 10px;
+    cursor:pointer;
+    min-width:38px;
+  }
+  #btnRefresh:hover{ filter:brightness(1.06); }
+  #btnRefresh:disabled{ opacity:.6; cursor:default; }
+
+  @keyframes spin{ from{ transform:rotate(0deg);} to{ transform:rotate(360deg);} }
+  #btnRefresh.loading{ animation: spin 0.9s linear infinite; }
+
+  @media (max-width: 768px){
+    #auth-bar{ right:8px; top:8px; gap:6px; }
+    #auth-bar .pill{ display:none; } /* en mobile gana espacio */
+    #btnAuthOpen, #btnLogout, #btnRefresh{ padding:8px 10px; border-radius:999px; }
+  }
 </style>
 
 
@@ -258,6 +278,41 @@
     .btn { background:#111; color:#fff; border:none; padding:8px 12px; border-radius:8px; cursor:pointer; }
     .btn.secondary { background:#e0e0e0; color:#111; }
   </style>
+
+<style>
+  /* ===== Busy overlay (loading gif/spinner) ===== */
+  #busy-overlay{
+    position: fixed;
+    inset: 0;
+    z-index: 4500;
+    background: rgba(0,0,0,.45);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(1.5px);
+  }
+  #busy-overlay .busy-card{
+    background: rgba(15,23,42,.92);
+    color: #e5e7eb;
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 14px;
+    padding: 18px 20px;
+    display:flex;
+    gap:12px;
+    align-items:center;
+    box-shadow: 0 20px 60px rgba(0,0,0,.35);
+    font: 600 14px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  }
+  #busy-overlay .spinner{
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,.25);
+    border-top-color: rgba(255,255,255,.95);
+    animation: spin 0.9s linear infinite;
+  }
+</style>
+
 </head>
 
 
@@ -274,6 +329,7 @@
   <span id="auth-info" class="pill auth-hidden"></span>
   <button id="btnAuthOpen" type="button">Acceder</button>
   <button id="btnLogout" class="auth-hidden" type="button">Salir</button>
+  <button id="btnRefresh" type="button" title="Refrescar datos" aria-label="Refrescar datos">↻</button>
 </div>
 
 
@@ -358,12 +414,11 @@
   <script>
     // ===== Helpers de ID =====
     window.normalizarId = window.normalizarId || function normalizarId(x) {
-      let s = String(x ?? "")
-        .normalize("NFKC")
-        .replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, "")
-        .replace(/[\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+      let s = String(x ?? '')
+          .trim()
+          .replace(/\s*\|\s*/g, '|')
+          .replace(/\s*-\s*/g, '-')   // si en backend comentaste esto, comentala acá también
+          .replace(/\s+/g, ' ');
       if (!s) return "";
       const stripZeros = (v) => v.replace(/^0+/, "") || "0";
       if (/^\d+$/.test(s)) return stripZeros(s);
@@ -380,6 +435,17 @@
     };
     window.idKey = window.idKey || function idKey(x){ return window.normalizarId(x); };
 
+    function canonId(x) {
+      return String(x ?? '')
+        .trim()
+        .replace(/\s*\|\s*/g, '|')
+        .replace(/\s*-\s*/g, '-')   // si en backend comentaste esto, comentala acá también
+        .replace(/\s+/g, ' ');
+    }
+
+    function idKey(x) {
+      return canonId(x); // la key ES el ID canónico completo (no solo números)
+    }
     // ===== Centroide por área (definir ANTES de usar) =====
     function centroidArea(coords) {
       // coords: [[lat,lng], ...]
@@ -449,74 +515,57 @@
       return [lat*180/Math.PI, lon*180/Math.PI];
     }
 
-    // ===== CSV URL (misma del otro archivo) =====
-    window.SHEET_CSV = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRnjPtaFTh49d_U3mD8kNr6_YoXZoUL5d5Ah11E2FcAMjrHtSyJkH6Q6p0seJyp3JOa6iK2F8ODpxrf/pub?gid=1159469350&single=true&output=csv";
+    // ===== Fuente de datos (JSON desde Apps Script, sin CSV) =====
+// Usamos el MISMO WebApp que ya tenés para guardar (WEBHOOK_URL) pero con ?read=stats_rt
+// Respuesta esperada: { ok:true, items:[{id:'...', cantidad:3, finalizado:'Si'} ...] }
+// Soporta JSONP: ?read=stats_rt&callback=miFuncion
+async function cargarDatosDesdeBackend() {
+  const base = (typeof WEBHOOK_URL === 'string' && WEBHOOK_URL) ? WEBHOOK_URL : '';
+  if (!base) return [];
 
-    // ===== CSV parsing + obtenerColor ====
-    function parseCSVLine(line) {
-      const out = []; let cur = "", inQ = false;
-      for (let i=0;i<line.length;i++) {
-        const ch = line[i];
-        if (ch === '"') { if (inQ && line[i+1] === '"') { cur += '"'; i++; } else { inQ = !inQ; } }
-        else if (ch === "," && !inQ) { out.push(cur); cur=""; }
-        else { cur += ch; }
+  const url = base + (base.includes('?') ? '&' : '?') + 'read=stats_rt';
+
+  // 1) Intento normal por fetch (si CORS lo permite)
+  try{
+    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (r.ok) {
+      const data = await r.json();
+      return Array.isArray(data.items) ? data.items : [];
+    }
+  }catch(_){}
+
+  // 2) Fallback JSONP (no depende de CORS)
+  return await cargarDatosJSONP(url);
+}
+
+function cargarDatosJSONP(urlBase) {
+  return new Promise((resolve) => {
+    const cb = '__cbStats_' + Math.random().toString(36).slice(2);
+    const s = document.createElement('script');
+
+    const cleanup = () => {
+      try{ delete window[cb]; }catch(_){ window[cb]=undefined; }
+      if (s && s.parentNode) s.parentNode.removeChild(s);
+    };
+
+    window[cb] = (payload) => {
+      cleanup();
+      try{
+        const items = (payload && Array.isArray(payload.items)) ? payload.items : [];
+        resolve(items);
+      }catch(_){
+        resolve([]);
       }
-      out.push(cur); return out;
-    }
-    function normalizarFinalizado(v) {
-      const s = String(v ?? "").trim().toLowerCase();
-      if (!s) return "";
-      if (["si","sí","true","1","ok","finalizado","completo","terminado"].includes(s) || v === true) return "Si";
-      if (["no","n","false","0","pendiente","incompleto"].includes(s)) return "No";
-      return s;
-    }
-    function obtenerColor(cantidad, finalizado) {
-      const fin = String(finalizado ?? "").trim().toLowerCase();
-      const esSi = ["si","sí","true","1","ok","finalizado","completo","terminado"].includes(fin) || finalizado === true;
-      if (cantidad === 0) return "gray";
-      if (cantidad === 1) return "green";
-      if (cantidad === 2) return "yellow";
-      if (cantidad === 3) return "orange";
-      if (cantidad === 4) return "darkorange";
-      if (cantidad === 5) return "red";
-      if (cantidad === 6) return "maroon";
-      if (cantidad === 7) return "peru";
-      if (cantidad >= 8) return "black";
-      return "gray";
-    }
-    async function fetchTextWithFallback(sheetCsvUrl) {
-      const res = await fetch(sheetCsvUrl, { headers: { Accept: "text/csv" } });
-      if (!res.ok) throw new Error("No se pudo descargar el CSV ("+res.status+")");
-      return res.text();
-    }
-    async function cargarDatosDesdeSheets() {
-      try {
-        const csvData = await fetchTextWithFallback(window.SHEET_CSV);
-        const filas = csvData.split(/\r?\n/).filter(l => l.trim() !== "");
-        if (!filas.length) return [];
-        const header = parseCSVLine(filas[0]).map(h => String(h||"").toLowerCase().trim());
-        let idxId = 0, idxCantidad = -1, idxFin = -1, start=0;
-        const looksHeader = /(id|cantidad|veces|finalizado)/.test(header.join(","));
-        if (looksHeader) {
-          idxId = header.findIndex(x => x === "id" || x.includes("territorio"));
-          if (idxId < 0) idxId = 0;
-          idxCantidad = header.findIndex(x => x === "cantidad" || x.includes("veces"));
-          idxFin = header.findIndex(x => x.includes("finalizado"));
-          start = 1;
-        }
-        const out = [];
-        for (let i=start;i<filas.length;i++) {
-          const c = parseCSVLine(filas[i]); if (!c.length) continue;
-          const id = window.idKey ? window.idKey(c[idxId]) : String(c[idxId]??"").trim();
-          if (!id) continue;
-          let cantidad = 0;
-          if (idxCantidad >= 0) { const n = parseInt((c[idxCantidad]??"").trim(),10); if (Number.isFinite(n)) cantidad = n; }
-          let finalizado = ""; if (idxFin >= 0) finalizado = normalizarFinalizado((c[idxFin]??"").trim());
-          out.push({ id, cantidad, finalizado });
-        }
-        return out;
-      } catch(e) { console.error(e); return []; }
-    }
+    };
+
+    const sep = urlBase.includes('?') ? '&' : '?';
+    s.src = urlBase + sep + 'callback=' + encodeURIComponent(cb);
+    s.async = true;
+    s.onerror = () => { cleanup(); resolve([]); };
+    document.head.appendChild(s);
+  });
+}
+
 
     // ===== Modal / envío =====
     const $modal = document.getElementById('modal');
@@ -541,29 +590,157 @@
     function cerrarModal(){ $modal.style.display='none'; $backdrop.style.display='none'; }
     $btnCancelar.addEventListener('click', cerrarModal);
     $backdrop.addEventListener('click', (e)=>{ if(e.target===$backdrop) cerrarModal(); });
-    const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyMOB2aLOHERbv5IkFehUcqFKBtHrN0qhX_ixvw9IvI12P0bJfHVj_c-cV6GtY8Cyw/exec";
-    async function enviarAlSheet(rec){
-      if (!WEBHOOK_URL) { console.log("Registro simulado:", rec); return { ok:true, simulated:true }; }
-      try {
-        const body = new URLSearchParams({ payload: JSON.stringify(rec) });
-        const r = await fetch(WEBHOOK_URL, { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded;charset=utf-8'}, body });
-        if (r.ok) return { ok:true, via:'POST' };
-        const url = WEBHOOK_URL + '?' + new URLSearchParams({ payload: JSON.stringify(rec) });
-        await fetch(url, { method:'GET', mode:'no-cors' });
-        return { ok:true, via:'GET-no-cors' };
-      } catch(e){ return { ok:false, reason:String(e) }; }
-    }
-    $btnGuardar.addEventListener('click', async () => {
-      const territorio = $campoTerritorio.value;
-      const poligonoId = $campoPoligono.value;
-      const capitan    = $campoCapitan.value.trim();
-      const fecha      = $campoFecha.value;
-      const finalizado = $campoEstado.value;
-      const comentario = $campoNotas.value.trim();
-      const rec = { id: poligonoId, territorio, poligonoId, fecha, finalizado, capitan, comentario };
-      const r = await enviarAlSheet(rec);
-      if (r.ok) cerrarModal(); else alert("No se pudo guardar el registro");
+    const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbw5wH4kYsZ_Mo92ytaWJo5nyquLPE95htPVE_vNxxCeGflejrus_-iBcwvmQvxTHkE/exec";
+
+function showBusy(msg){
+  const ov = document.getElementById('busy-overlay');
+  const tx = document.getElementById('busy-text');
+  if (tx) tx.textContent = msg || 'Procesando…';
+  if (ov) ov.style.display = 'flex';
+}
+function hideBusy(){
+  const ov = document.getElementById('busy-overlay');
+  if (ov) ov.style.display = 'none';
+}
+
+async function enviarAlSheet(rec) {
+  if (!WEBHOOK_URL) {
+    console.log("Registro simulado:", rec);
+    return { ok: true, simulated: true, territorio: String(rec.id || rec.territorio || ''), cantidad: null };
+  }
+
+  const payloadStr = JSON.stringify(rec);
+
+  // helper: JSONP
+  function fetchJsonp(url, cbParam = "callback", timeoutMs = 12000) {
+    return new Promise((resolve, reject) => {
+      const cbName = "cb_" + Math.random().toString(36).slice(2);
+      const sep = url.includes("?") ? "&" : "?";
+      const full = url + sep + new URLSearchParams({ [cbParam]: cbName });
+
+      let done = false;
+      const t = setTimeout(() => {
+        if (done) return;
+        done = true;
+        try { delete window[cbName]; } catch (_) {}
+        script.remove();
+        reject(new Error("JSONP timeout"));
+      }, timeoutMs);
+
+      window[cbName] = (data) => {
+        if (done) return;
+        done = true;
+        clearTimeout(t);
+        try { delete window[cbName]; } catch (_) {}
+        script.remove();
+        resolve(data);
+      };
+
+      const script = document.createElement("script");
+      script.src = full;
+      script.onerror = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(t);
+        try { delete window[cbName]; } catch (_) {}
+        script.remove();
+        reject(new Error("JSONP error"));
+      };
+      document.head.appendChild(script);
     });
+  }
+
+  try {
+    // 1) POST (preferido)
+    const body = new URLSearchParams({ payload: payloadStr });
+    const r = await fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8" },
+      body
+    });
+
+    // Si el navegador bloqueó CORS, r.ok puede ser false o incluso lanzar excepción arriba.
+    // Pero si llegó y es OK, leemos JSON:
+    if (r.ok) {
+      const data = await r.json().catch(() => ({}));
+      // data esperado: { ok:true, territorio, cantidad }
+      return { ...data, via: "POST" };
+    }
+
+    // 2) GET normal (intentamos leer JSON)
+    const urlGet = WEBHOOK_URL + "?" + new URLSearchParams({ payload: payloadStr });
+    const r2 = await fetch(urlGet, { method: "GET" });
+    if (r2.ok) {
+      const data2 = await r2.json().catch(() => ({}));
+      return { ...data2, via: "GET" };
+    }
+
+    // 3) JSONP final (si CORS molesta)
+    const urlJsonp = WEBHOOK_URL + "?" + new URLSearchParams({ payload: payloadStr });
+    const data3 = await fetchJsonp(urlJsonp);
+    return { ...data3, via: "JSONP" };
+
+  } catch (e) {
+    // 3b) si tiró excepción (probable CORS), probamos JSONP
+    try {
+      const urlJsonp = WEBHOOK_URL + "?" + new URLSearchParams({ payload: payloadStr });
+      const data3 = await fetchJsonp(urlJsonp);
+      return { ...data3, via: "JSONP" };
+    } catch (e2) {
+      return { ok: false, reason: String(e2 || e) };
+    }
+  }
+}
+
+    $btnGuardar.addEventListener('click', async () => {
+  const territorio = $campoTerritorio.value;
+  const poligonoId = $campoPoligono.value;
+  const capitan    = $campoCapitan.value.trim();
+  const fecha      = $campoFecha.value;
+  const finalizado = $campoEstado.value;
+  const comentario = $campoNotas.value.trim();
+  const sincronizado = "";
+
+  // IMPORTANTE: id = territorio (para conteo por territorio)
+  const comentarioFinal = (comentario ? comentario : '') + (poligonoId ? (' | Manzana: ' + poligonoId) : '');
+  const rec = { id: poligonoId, territorio, poligonoId, fecha, finalizado, capitan, comentario: comentarioFinal, sincronizado };
+
+  try{
+    $btnGuardar.disabled = true;
+    showBusy('Guardando…');
+
+    const r = await enviarAlSheet(rec);
+    if (r.ok) {
+      const key = String(r.id || poligonoId).trim();
+      __datosMap.set(key, { id: key, cantidad: Number(r.cantidad || 0) });
+
+      // repintar esa manzana puntual (si tenés layer guardado), o repintar todo:
+      await init();
+    }
+
+    // ✅ Actualizar conteo local y repintar SOLO ese territorio
+    const terKey = idKey(r.territorio || territorio);
+    const cant   = Number(r.cantidad || 0);
+    window.__datosMap = window.__datosMap || new Map();
+    window.__datosMap.set(terKey, { id: terKey, cantidad: cant, finalizado: finalizado });
+
+    if (typeof repintarTerritorio === 'function'){
+      repintarTerritorio(territorio);
+    } else {
+      // fallback: repintar todo
+      await init();
+    }
+
+    cerrarModal();
+    (window.showToast || console.log)('Registro guardado. Total del territorio: ' + cant);
+  }catch(e){
+    console.error(e);
+    alert(String(e.message || e));
+  }finally{
+    hideBusy();
+    $btnGuardar.disabled = false;
+  }
+});
 
     // ===== Mapa =====
     const vista = getVistaFromURL();
@@ -586,30 +763,61 @@ const labelsLayer   = L.featureGroup().addTo(map);
       return mapa;
     }
 
-    function getFillHexFromDatos(id, terr) {
-      const key = window.idKey ? window.idKey(id) : String(id ?? "");
-      const d   = window.__datosMap && window.__datosMap.get(key);
+    function getFillHexFromDatos(id) {
+      const key = idKey(id);
+      const d = __datosMap.get(key);
+
       if (d) {
         const claseAHex = {
           gray:'#808080', blue:'rgb(9,0,128)', green:'green', yellow:'yellow', orange:'#FFA500', darkorange:'#FF8C00',
           red:'#ff0000', maroon:'#720303', peru:'#2b0101', black:'#160000'
         };
-        const c = obtenerColor(d.cantidad, d.finalizado);
+        console.log(id + " : " + d.cantidad);
+        const c = obtenerColor(d.cantidad);
         return claseAHex[c] || '#000';
       }else{
         return '#808080';
       }
     }
 
-    
+  function obtenerColor(cantidad) {
+  cantidad = Number(cantidad) || 0;
+
+      if (cantidad === 0) return "gray";
+      if (cantidad === 1) return "green";
+      if (cantidad === 2) return "yellow";
+      if (cantidad === 3) return "orange";
+      if (cantidad === 4) return "darkorange";
+      if (cantidad === 5) return "red";
+      if (cantidad === 6) return "maroon";
+      if (cantidad === 7) return "peru";
+      if (cantidad >= 8) return "black";
+      return "gray";                         // azul muy fuerte
+}
+
+
+function repintarTerritorio(territorio){
+  const terrKey = window.idKey ? window.idKey(territorio) : String(territorio ?? '');
+  polygonsLayer.eachLayer(layer => {
+    // layer carries no terr prop; we reconstruct from closure? Instead read from stored options if attached.
+    // We'll attach __terr on creation below; if not, fallback via feature props.
+    const t = layer && layer.__terr != null ? layer.__terr : null;
+    if (String(t) === String(territorio)) {
+      const hex = getFillHexFromDatos(layer.__polyId);
+      layer.setStyle({ fillColor: hex });
+    }
+  });
+}
+
+
 async function init() {
   if (!Array.isArray(window.poligonos) || !window.poligonos.length) {
     alert('poligonos_salinas.js no definió window.poligonos o está vacío'); return;
   }
   const byTerr = indexarPorTerritorio(window.poligonos);
 
-  // Datos CSV
-  const datos = await cargarDatosDesdeSheets();
+  // Datos JSON (stats_rt)
+  const datos = await cargarDatosDesdeBackend();
   // Normalizamos las claves para asegurar match con p.id
   window.__datosMap = new Map(datos.map(d => [window.idKey ? window.idKey(d.id) : String(d.id), d]));
 
@@ -622,8 +830,10 @@ async function init() {
     // Show ALL polygons (no territory filtering)
     const listaAll = Array.isArray(window.poligonos) ? window.poligonos : [];
     for (const p of listaAll) {
-      const hex = getFillHexFromDatos(p.id, p.territorio);
+      const hex = getFillHexFromDatos(p.id);
       const poly = L.polygon(p.coords, { color:'#000', weight:1, fillColor:hex, fillOpacity:0.5 }).addTo(polygonsLayer);
+      poly.__terr = (typeof terr !== 'undefined' ? terr : p.territorio);
+      poly.__polyId = p.id;
       poly.on('click', () => abrirModalSiLogueado(p.territorio, p.id));
       const labelPt = centroidArea(p.coords) || centroide(p.coords) || poly.getBounds().getCenter();
       const icon = L.divIcon({ className:'numero-cartel', html:String(p.id), iconSize: null, iconAnchor: [0,0] });
@@ -636,8 +846,10 @@ async function init() {
     for (const terr of territorios) {
       const lista = byTerr.get(terr) || [];
       for (const p of lista) {
-        const hex = getFillHexFromDatos(p.id, terr);
+        const hex = getFillHexFromDatos(p.id);
         const poly = L.polygon(p.coords, { color:'#000', weight:1, fillColor:hex, fillOpacity:0.5 }).addTo(polygonsLayer);
+      poly.__terr = (typeof terr !== 'undefined' ? terr : p.territorio);
+      poly.__polyId = p.id;
         poly.on('click', () => abrirModalSiLogueado(terr, p.id));
         // Label: centroide por área -> centroide geom. -> bounds center
         const labelPt = centroidArea(p.coords) || centroide(p.coords) || poly.getBounds().getCenter();
@@ -659,7 +871,42 @@ async function init() {
   }
 }
 
+
 init();
+
+// ===== Botón "Refrescar datos" (recalcula cantidades y repinta polígonos) =====
+(function(){
+  const btn = document.getElementById('btnRefresh');
+  if (!btn) return;
+
+  async function refrescar(){
+    try{
+      btn.disabled = true;
+      btn.classList.add('loading');
+      showBusy('Refrescando…');
+      await init(); // vuelve a pedir stats_rt y repinta
+      (window.showToast || console.log)('Datos actualizados');
+    }catch(e){
+      console.error(e);
+      (window.showToast || console.log)('No se pudieron refrescar los datos');
+    }finally{
+      btn.classList.remove('loading');
+      btn.disabled = false;
+      hideBusy();
+    }
+  }
+
+  btn.addEventListener('click', refrescar);
+
+  // TIP: Shift+R también refresca
+  window.addEventListener('keydown', (ev) => {
+    if ((ev.key === 'R' || ev.key === 'r') && ev.shiftKey) {
+      ev.preventDefault();
+      refrescar();
+    }
+  });
+})();
+
 </script>
 
   <script>
@@ -914,6 +1161,15 @@ function abrirModalSiLogueado(terr, polyId){
   if (ov && cancelBtn){ cancelBtn.addEventListener('click', function(){ ov.style.display='none'; }); }
 })();
 </script>
+
+
+<!-- Busy overlay (se muestra al guardar/refrescar) -->
+<div id="busy-overlay" role="status" aria-live="polite" aria-label="Procesando">
+  <div class="busy-card">
+    <div class="spinner" aria-hidden="true"></div>
+    <div id="busy-text">Procesando…</div>
+  </div>
+</div>
 
 </body>
 </html>
