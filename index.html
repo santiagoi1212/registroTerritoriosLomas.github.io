@@ -541,7 +541,7 @@
     function cerrarModal(){ $modal.style.display='none'; $backdrop.style.display='none'; }
     $btnCancelar.addEventListener('click', cerrarModal);
     $backdrop.addEventListener('click', (e)=>{ if(e.target===$backdrop) cerrarModal(); });
-    const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbweVDu_2Vn0ygEMQdkgqbVprTKJ2kjAT--Wimo0cVTaASLK3-yJMkt175DJq-pky1Y/exec";
+    const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyMOB2aLOHERbv5IkFehUcqFKBtHrN0qhX_ixvw9IvI12P0bJfHVj_c-cV6GtY8Cyw/exec";
     async function enviarAlSheet(rec){
       if (!WEBHOOK_URL) { console.log("Registro simulado:", rec); return { ok:true, simulated:true }; }
       try {
