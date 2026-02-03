@@ -523,20 +523,11 @@ async function cargarDatosDesdeBackend() {
   const base = (typeof WEBHOOK_URL === 'string' && WEBHOOK_URL) ? WEBHOOK_URL : '';
   if (!base) return [];
 
+  // stats_rt SIEMPRE por JSONP (evita CORS)
   const url = base + (base.includes('?') ? '&' : '?') + 'read=stats_rt';
-
-  // 1) Intento normal por fetch (si CORS lo permite)
-  try{
-    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    if (r.ok) {
-      const data = await r.json();
-      return Array.isArray(data.items) ? data.items : [];
-    }
-  }catch(_){}
-
-  // 2) Fallback JSONP (no depende de CORS)
   return await cargarDatosJSONP(url);
 }
+
 
 function cargarDatosJSONP(urlBase) {
   return new Promise((resolve) => {
