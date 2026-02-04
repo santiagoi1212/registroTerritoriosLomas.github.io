@@ -191,7 +191,7 @@
 
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Territorios Lomas</title>
+  <title>Territorios Aeroparque</title>
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -523,11 +523,20 @@ async function cargarDatosDesdeBackend() {
   const base = (typeof WEBHOOK_URL === 'string' && WEBHOOK_URL) ? WEBHOOK_URL : '';
   if (!base) return [];
 
-  // stats_rt SIEMPRE por JSONP (evita CORS)
   const url = base + (base.includes('?') ? '&' : '?') + 'read=stats_rt';
+
+  // 1) Intento normal por fetch (si CORS lo permite)
+  try{
+    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (r.ok) {
+      const data = await r.json();
+      return Array.isArray(data.items) ? data.items : [];
+    }
+  }catch(_){}
+
+  // 2) Fallback JSONP (no depende de CORS)
   return await cargarDatosJSONP(url);
 }
-
 
 function cargarDatosJSONP(urlBase) {
   return new Promise((resolve) => {
@@ -581,7 +590,7 @@ function cargarDatosJSONP(urlBase) {
     function cerrarModal(){ $modal.style.display='none'; $backdrop.style.display='none'; }
     $btnCancelar.addEventListener('click', cerrarModal);
     $backdrop.addEventListener('click', (e)=>{ if(e.target===$backdrop) cerrarModal(); });
-    const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbw5wH4kYsZ_Mo92ytaWJo5nyquLPE95htPVE_vNxxCeGflejrus_-iBcwvmQvxTHkE/exec";
+    const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzRaIFmQcJoyMRd3bdPifTFjEnLCzOed7dKwdxTzbs55YciuyKyq_GmJBzmkXDx-hU/exec";
 
 function showBusy(msg){
   const ov = document.getElementById('busy-overlay');
