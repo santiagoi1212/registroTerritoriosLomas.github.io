@@ -311,6 +311,13 @@
     border-top-color: rgba(255,255,255,.95);
     animation: spin 0.9s linear infinite;
   }
+  #modal footer .btn.danger {
+    background: #dc2626;
+    color: #fff;
+    border: none;
+    margin-right: auto;
+  }
+  #modal footer .btn.danger:hover { background: #b91c1c; }
 </style>
 
 </head>
@@ -413,39 +420,24 @@
 
   <script>
     // ===== Helpers de ID =====
-    window.normalizarId = window.normalizarId || function normalizarId(x) {
-      let s = String(x ?? '')
-          .trim()
-          .replace(/\s*\|\s*/g, '|')
-          .replace(/\s*-\s*/g, '-')   // si en backend comentaste esto, comentala acá también
-          .replace(/\s+/g, ' ');
-      if (!s) return "";
-      const stripZeros = (v) => v.replace(/^0+/, "") || "0";
-      if (/^\d+$/.test(s)) return stripZeros(s);
-      let m = s.match(/(\d+)\s*$/);
-      if (m) return stripZeros(m[1]);
-      if (s.includes("|")) {
-        const right = s.split("|").pop();
-        m = right.match(/(\d+)(?!.*\d)/);
-        if (m) return stripZeros(m[1]);
-      }
-      const all = s.match(/\d+/g);
-      if (all && all.length) return stripZeros(all[all.length - 1]);
-      return s;
-    };
-    window.idKey = window.idKey || function idKey(x){ return window.normalizarId(x); };
-
+    // canonId: normaliza espacios alrededor de | y - pero conserva el ID completo
     function canonId(x) {
       return String(x ?? '')
         .trim()
         .replace(/\s*\|\s*/g, '|')
-        .replace(/\s*-\s*/g, '-')   // si en backend comentaste esto, comentala acá también
+        .replace(/\s*-\s*/g, '-')
         .replace(/\s+/g, ' ');
     }
 
+    // idKey: la key del Map ES el ID canónico completo (ej: "1007|142", "304-A")
+    // Debe ser IDÉNTICA a la función canonId_ del backend (Apps Script)
     function idKey(x) {
-      return canonId(x); // la key ES el ID canónico completo (no solo números)
+      return canonId(x);
     }
+
+    // Exponer globalmente (usado por repintarTerritorio y otros)
+    window.idKey = idKey;
+    window.normalizarId = idKey; // alias para compatibilidad
     // ===== Centroide por área (definir ANTES de usar) =====
     function centroidArea(coords) {
       // coords: [[lat,lng], ...]
@@ -516,26 +508,32 @@
     }
 
     // ===== Fuente de datos (JSON desde Apps Script, sin CSV) =====
-// Usamos el MISMO WebApp que ya tenés para guardar (WEBHOOK_URL) pero con ?read=stats_rt
-// Respuesta esperada: { ok:true, items:[{id:'...', cantidad:3, finalizado:'Si'} ...] }
-// Soporta JSONP: ?read=stats_rt&callback=miFuncion
+// Apps Script redirige (302) y la URL final pierde los query params cuando se usa fetch().
+// Por eso usamos JSONP como método principal: el parámetro "callback" sobrevive la redirección
+// porque va embebido en la URL del <script>, no en headers.
 async function cargarDatosDesdeBackend() {
   const base = (typeof WEBHOOK_URL === 'string' && WEBHOOK_URL) ? WEBHOOK_URL : '';
   if (!base) return [];
 
+  // La URL base ya tiene la ruta del script; añadimos read=stats_rt
   const url = base + (base.includes('?') ? '&' : '?') + 'read=stats_rt';
 
-  // 1) Intento normal por fetch (si CORS lo permite)
+  // 1) JSONP primero (sobrevive redirecciones de Apps Script)
+  try {
+    const items = await cargarDatosJSONP(url);
+    if (Array.isArray(items) && items.length > 0) return items;
+  } catch(_){}
+
+  // 2) Fallback: fetch directo (funciona si se despliega sin redirección)
   try{
-    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    const r = await fetch(url, { cache: 'no-store', headers: { 'Accept': 'application/json' } });
     if (r.ok) {
       const data = await r.json();
       return Array.isArray(data.items) ? data.items : [];
     }
   }catch(_){}
 
-  // 2) Fallback JSONP (no depende de CORS)
-  return await cargarDatosJSONP(url);
+  return [];
 }
 
 function cargarDatosJSONP(urlBase) {
@@ -578,19 +576,77 @@ function cargarDatosJSONP(urlBase) {
     const $campoNotas = document.getElementById('campoNotas');
     const $btnCancelar = document.getElementById('btnCancelar');
     const $btnGuardar = document.getElementById('btnGuardar');
-    function abrirModal(terr, polyId) {$campoTerritorio.value = terr;
+    function isAdmin(){
+      if (!window.AuthApp) return false;
+      const role = AuthApp.getRole && AuthApp.getRole();
+      const user = AuthApp.getUsername && AuthApp.getUsername();
+      const ADMINS = ['sinchausti','santiagoi1212','santiago'];
+      return role === 'admin' || ADMINS.includes(String(user||'').trim().toLowerCase());
+    }
+
+    function abrirModal(terr, polyId) {
+      $campoTerritorio.value = terr;
       $campoPoligono.value   = polyId;
       $campoCapitan.value    = (window.AuthApp && AuthApp.getUsername && AuthApp.getUsername()) || '';
       $campoFecha.value      = new Date().toISOString().slice(0,10);
       $campoEstado.value     = 'Si';
       $campoNotas.value      = '';
+
+      // Mostrar/ocultar botón borrar según rol admin
+      let $btnBorrar = document.getElementById('btnBorrarUltimo');
+      if (!$btnBorrar) {
+        $btnBorrar = document.createElement('button');
+        $btnBorrar.id = 'btnBorrarUltimo';
+        $btnBorrar.className = 'btn danger';
+        $btnBorrar.textContent = '🗑 Borrar último registro';
+        $btnBorrar.type = 'button';
+        $modal.querySelector('footer').prepend($btnBorrar);
+
+        $btnBorrar.addEventListener('click', async () => {
+          const id = $campoPoligono.value;
+          if (!confirm(`¿Borrar el último registro de la manzana "${id}"?`)) return;
+          try {
+            $btnBorrar.disabled = true;
+            showBusy('Borrando…');
+            const payload = JSON.stringify({
+              op: 'delete_last',
+              id,
+              user: AuthApp.getUsername(),
+              role: AuthApp.getRole()
+            });
+            const r = await fetch(WEBHOOK_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8' },
+              body: new URLSearchParams({ payload })
+            });
+            const data = await r.json();
+            if (data.ok && data.deleted) {
+              (window.showToast || console.log)('Registro borrado ✅');
+              cerrarModal();
+              await init();
+            } else if (data.ok && !data.deleted) {
+              (window.showToast || console.log)('No había registro para borrar');
+              cerrarModal();
+            } else {
+              alert('Error: ' + (data.error || 'desconocido'));
+            }
+          } catch(e) {
+            alert('Error de red: ' + e.message);
+          } finally {
+            hideBusy();
+            $btnBorrar.disabled = false;
+          }
+        });
+      }
+      $btnBorrar.style.display = isAdmin() ? 'inline-block' : 'none';
+
       $backdrop.style.display = 'block';
       $modal.style.display    = 'block';
     }
     function cerrarModal(){ $modal.style.display='none'; $backdrop.style.display='none'; }
     $btnCancelar.addEventListener('click', cerrarModal);
     $backdrop.addEventListener('click', (e)=>{ if(e.target===$backdrop) cerrarModal(); });
-    const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbzRaIFmQcJoyMRd3bdPifTFjEnLCzOed7dKwdxTzbs55YciuyKyq_GmJBzmkXDx-hU/exec";
+    const WEBHOOK_URL = (window.APP_CONFIG && window.APP_CONFIG.WEBHOOK_URL) || "https://script.google.com/macros/s/AKfycbz3t0e03wMw6uJ-IsIIHmnvizMBRxeBF2Y7Et2uiTL-5d8L7di8uFA3HWkdw0xMLj0/exec";
 
 function showBusy(msg){
   const ov = document.getElementById('busy-overlay');
